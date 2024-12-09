@@ -6,14 +6,18 @@ import (
 	"strings"
 )
 
-type SyftPackagesExtractorInterface interface {
+type SyftPackagesExtractor interface {
 	AnalyzeImages(images []types.ImageModel) ([]*ContainerResolution, error)
 }
 
-type SyftPackagesExtractor struct {
+type syftPackagesExtractor struct {
 }
 
-func (spe *SyftPackagesExtractor) AnalyzeImages(images []types.ImageModel) ([]*ContainerResolution, error) {
+func NewSyftPackagesExtractor() SyftPackagesExtractor {
+	return &syftPackagesExtractor{}
+}
+
+func (spe *syftPackagesExtractor) AnalyzeImages(images []types.ImageModel) ([]*ContainerResolution, error) {
 	if images == nil {
 		return []*ContainerResolution{}, nil
 	}
