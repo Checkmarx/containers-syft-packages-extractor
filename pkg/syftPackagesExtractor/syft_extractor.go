@@ -7,7 +7,7 @@ import (
 )
 
 type SyftPackagesExtractorInterface interface {
-	AnalyzeImages(images []types.ImageModel) (interface{}, error)
+	AnalyzeImages(images []types.ImageModel) ([]*ContainerResolution, error)
 }
 
 type SyftPackagesExtractor struct {
