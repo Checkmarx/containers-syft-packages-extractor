@@ -7,7 +7,6 @@ import (
 	"github.com/Checkmarx/containers-types/types"
 	"github.com/anchore/go-collections"
 	"github.com/anchore/stereoscope"
-	"github.com/anchore/stereoscope/pkg/image/oci"
 	"github.com/anchore/syft/syft"
 	"github.com/anchore/syft/syft/file"
 	"github.com/anchore/syft/syft/format"
@@ -17,7 +16,6 @@ import (
 	"github.com/anchore/syft/syft/sbom"
 	"github.com/anchore/syft/syft/source"
 	"github.com/anchore/syft/syft/source/sourceproviders"
-	"github.com/anchore/syft/syft/source/stereoscopesource"
 	"github.com/rs/zerolog/log"
 	"regexp"
 	"strings"
@@ -33,9 +31,9 @@ var specialExtractors = []string{
 
 func analyzeImage(imageModel types.ImageModel) (*ContainerResolution, error) {
 
-	log.Debug().Msgf("image A is %s, found in file paths: %s", imageModel.Name, GetImageLocationsPathsString(imageModel))
+	log.Debug().Msgf("image is %s, found in file paths: %s", imageModel.Name, GetImageLocationsPathsString(imageModel))
 
-	_, s, err := analyzeImageUsingSyftA(imageModel.Name)
+	_, s, err := analyzeImageUsingSyft(imageModel.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -46,28 +44,6 @@ func analyzeImage(imageModel types.ImageModel) (*ContainerResolution, error) {
 }
 
 func analyzeImageUsingSyft(imageId string) (source.Source, *sbom.SBOM, error) {
-
-	img, err := stereoscope.GetImageFromSource(context.Background(), imageId, oci.Registry, stereoscope.WithPlatform("linux/amd64"))
-	if err != nil {
-		log.Err(err).Msgf("Could not create image source object.")
-		return nil, nil, err
-	}
-
-	imageSource := stereoscopesource.New(img, stereoscopesource.ImageConfig{Reference: imageId})
-	if err != nil {
-		log.Err(err).Msgf("Could not pull image: %s.", imageId)
-		return nil, nil, err
-	}
-
-	s, err := getSBOM(imageSource, true)
-	if err != nil {
-		log.Err(err).Msgf("Could get image SBOM. image: %s.", imageId)
-		return nil, nil, err
-	}
-	return imageSource, &s, nil
-}
-
-func analyzeImageUsingSyftA(imageId string) (source.Source, *sbom.SBOM, error) {
 
 	schemeSource, newUserInput := stereoscope.ExtractSchemeSource(imageId, allSourceTags()...)
 
