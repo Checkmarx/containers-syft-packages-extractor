@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/Checkmarx/containers-types/types"
+	"github.com/anchore/go-collections"
 	"github.com/anchore/stereoscope"
 	"github.com/anchore/stereoscope/pkg/image/oci"
 	"github.com/anchore/syft/syft"
@@ -15,6 +16,7 @@ import (
 	"github.com/anchore/syft/syft/pkg"
 	"github.com/anchore/syft/syft/sbom"
 	"github.com/anchore/syft/syft/source"
+	"github.com/anchore/syft/syft/source/sourceproviders"
 	"github.com/anchore/syft/syft/source/stereoscopesource"
 	"github.com/rs/zerolog/log"
 	"regexp"
@@ -31,9 +33,9 @@ var specialExtractors = []string{
 
 func analyzeImage(imageModel types.ImageModel) (*ContainerResolution, error) {
 
-	log.Debug().Msgf("image is %s, found in file paths: %s", imageModel.Name, GetImageLocationsPathsString(imageModel))
+	log.Debug().Msgf("image A is %s, found in file paths: %s", imageModel.Name, GetImageLocationsPathsString(imageModel))
 
-	_, s, err := analyzeImageUsingSyft(imageModel.Name)
+	_, s, err := analyzeImageUsingSyftA(imageModel.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -63,6 +65,35 @@ func analyzeImageUsingSyft(imageId string) (source.Source, *sbom.SBOM, error) {
 		return nil, nil, err
 	}
 	return imageSource, &s, nil
+}
+
+func analyzeImageUsingSyftA(imageId string) (source.Source, *sbom.SBOM, error) {
+
+	schemeSource, newUserInput := stereoscope.ExtractSchemeSource(imageId, allSourceTags()...)
+
+	// set up the GetSourceConfig
+	getSourceCfg := syft.DefaultGetSourceConfig()
+	if schemeSource != "" {
+		getSourceCfg = getSourceCfg.WithSources(schemeSource)
+		imageId = newUserInput
+	}
+	src, err := syft.GetSource(context.Background(), imageId, getSourceCfg)
+
+	if err != nil {
+		log.Err(err).Msgf("Could not create image source object.")
+		return nil, nil, err
+	}
+
+	s, err := getSBOM(src, true)
+	if err != nil {
+		log.Err(err).Msgf("Could get image SBOM. image: %s.", imageId)
+		return nil, nil, err
+	}
+	return src, &s, nil
+}
+
+func allSourceTags() []string {
+	return collections.TaggedValueSet[source.Provider]{}.Join(sourceproviders.All("", nil)...).Tags()
 }
 
 func getSBOM(src source.Source, saveToFile bool) (sbom.SBOM, error) {
