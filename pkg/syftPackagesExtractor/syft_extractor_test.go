@@ -31,6 +31,28 @@ func TestSyftExtractor(t *testing.T) {
 		checkResults(t, resolutions, expectedValues)
 	})
 
+	t.Run("ValidPrivateImage", func(t *testing.T) {
+		t.Skip("Skipping this test if you don't have podman credentials file")
+		// Define a list of valid images for testing
+		images := []types.ImageModel{
+			{Name: "ghcr.io/checkmarx-containers/alpine-test:3.15", ImageLocations: []types.ImageLocation{{Origin: types.UserInput, Path: "None"}}},
+		}
+
+		resolutions, err := extractor.AnalyzeImages(images)
+		if err != nil {
+			t.Errorf("Error analyzing images: %v", err)
+		}
+		expectedValues := map[string]struct {
+			Layers         int
+			Packages       int
+			ImageLocations int
+		}{
+			"ghcr.io/checkmarx-containers/alpine-test:3.15": {Layers: 1, Packages: 14, ImageLocations: 1},
+		}
+
+		checkResults(t, resolutions, expectedValues)
+	})
+
 	t.Run("ImageWithTwoFileLocations", func(t *testing.T) {
 		// Define a list of images with two file locations
 		images := []types.ImageModel{
@@ -122,6 +144,10 @@ func checkResults(t *testing.T, resolutions []*ContainerResolution, expectedValu
 	Packages       int
 	ImageLocations int
 }) {
+	if len(resolutions) != len(expectedValues) {
+		t.Errorf("Expected %d results, got %d", len(expectedValues), len(resolutions))
+	}
+
 	for _, resolution := range resolutions {
 		// Get the expected values for the current resolution
 		expected, ok := expectedValues[resolution.ContainerImage.ImageId]

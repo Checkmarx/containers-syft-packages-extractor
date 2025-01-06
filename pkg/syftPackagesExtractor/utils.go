@@ -7,6 +7,7 @@ import (
 	"github.com/Checkmarx/containers-types/types"
 	"github.com/anchore/go-collections"
 	"github.com/anchore/stereoscope"
+	"github.com/anchore/stereoscope/pkg/image"
 	"github.com/anchore/syft/syft"
 	"github.com/anchore/syft/syft/file"
 	"github.com/anchore/syft/syft/format"
@@ -45,14 +46,22 @@ func analyzeImage(imageModel types.ImageModel) (*ContainerResolution, error) {
 
 func analyzeImageUsingSyft(imageId string) (source.Source, *sbom.SBOM, error) {
 
+	// Step 1: Load Podman credentials and configure RegistryOptions
+	registryOptions, err := configureRegistryOptions()
+	if err != nil {
+		log.Info().Msg("No credentials found for Podman, proceeding without them.")
+		registryOptions = &image.RegistryOptions{}
+	}
+
 	schemeSource, newUserInput := stereoscope.ExtractSchemeSource(imageId, allSourceTags()...)
 
 	// set up the GetSourceConfig
-	getSourceCfg := syft.DefaultGetSourceConfig()
+	getSourceCfg := syft.DefaultGetSourceConfig().WithRegistryOptions(registryOptions)
 	if schemeSource != "" {
 		getSourceCfg = getSourceCfg.WithSources(schemeSource)
 		imageId = newUserInput
 	}
+
 	src, err := syft.GetSource(context.Background(), imageId, getSourceCfg)
 
 	if err != nil {
@@ -66,6 +75,29 @@ func analyzeImageUsingSyft(imageId string) (source.Source, *sbom.SBOM, error) {
 		return nil, nil, err
 	}
 	return src, &s, nil
+}
+
+// Utility to load Podman credentials and create RegistryOptions
+func configureRegistryOptions() (*image.RegistryOptions, error) {
+	// Load Podman auth.json
+	authConfig, err := LoadPodmanAuth()
+	if err != nil {
+		return nil, fmt.Errorf("error loading Podman auth.json: %w", err)
+	}
+
+	// Generate RegistryCredentials
+	credentials, err := CreateRegistryCredentials(authConfig)
+	if err != nil {
+		return nil, fmt.Errorf("error creating registry credentials: %w", err)
+	}
+
+	// Populate RegistryOptions
+	registryOptions := &image.RegistryOptions{}
+	for _, cred := range credentials {
+		registryOptions.Credentials = append(registryOptions.Credentials, cred)
+	}
+
+	return registryOptions, nil
 }
 
 func allSourceTags() []string {
