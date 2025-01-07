@@ -6,7 +6,7 @@ import (
 )
 
 func TestSyftExtractor(t *testing.T) {
-	extractor := newSyftPackagesExtractor()
+	extractor := &syftPackagesExtractor{}
 
 	t.Run("ValidImages", func(t *testing.T) {
 		// Define a list of valid images for testing
@@ -24,8 +24,30 @@ func TestSyftExtractor(t *testing.T) {
 			Packages       int
 			ImageLocations int
 		}{
-			"rabbitmq:3":               {Layers: 9, Packages: 109, ImageLocations: 1},
+			"rabbitmq:3":               {Layers: 9, Packages: 100, ImageLocations: 1},
 			"golang:1.21.5-alpine3.18": {Layers: 4, Packages: 38, ImageLocations: 1},
+		}
+
+		checkResults(t, resolutions, expectedValues)
+	})
+
+	t.Run("ValidPrivateImage", func(t *testing.T) {
+		t.Skip("Skipping this test if you don't have podman credentials file")
+		// Define a list of valid images for testing
+		images := []types.ImageModel{
+			{Name: "ghcr.io/checkmarx-containers/alpine-test:3.15", ImageLocations: []types.ImageLocation{{Origin: types.UserInput, Path: "None"}}},
+		}
+
+		resolutions, err := extractor.AnalyzeImages(images)
+		if err != nil {
+			t.Errorf("Error analyzing images: %v", err)
+		}
+		expectedValues := map[string]struct {
+			Layers         int
+			Packages       int
+			ImageLocations int
+		}{
+			"ghcr.io/checkmarx-containers/alpine-test:3.15": {Layers: 1, Packages: 14, ImageLocations: 1},
 		}
 
 		checkResults(t, resolutions, expectedValues)
@@ -48,7 +70,7 @@ func TestSyftExtractor(t *testing.T) {
 			Packages       int
 			ImageLocations int
 		}{
-			"rabbitmq:3": {Layers: 9, Packages: 109, ImageLocations: 2},
+			"rabbitmq:3": {Layers: 9, Packages: 100, ImageLocations: 2},
 		}
 
 		checkResults(t, resolutions, expectedValues)
@@ -110,7 +132,7 @@ func TestSyftExtractor(t *testing.T) {
 			Packages       int
 			ImageLocations int
 		}{
-			"rabbitmq:3": {Layers: 9, Packages: 109, ImageLocations: 1},
+			"rabbitmq:3": {Layers: 9, Packages: 100, ImageLocations: 1},
 		}
 
 		checkResults(t, resolutions, expectedValues)
@@ -122,6 +144,10 @@ func checkResults(t *testing.T, resolutions []*ContainerResolution, expectedValu
 	Packages       int
 	ImageLocations int
 }) {
+	if len(resolutions) != len(expectedValues) {
+		t.Errorf("Expected %d results, got %d", len(expectedValues), len(resolutions))
+	}
+
 	for _, resolution := range resolutions {
 		// Get the expected values for the current resolution
 		expected, ok := expectedValues[resolution.ContainerImage.ImageId]

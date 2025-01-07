@@ -5,8 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/Checkmarx/containers-types/types"
+	"github.com/anchore/go-collections"
 	"github.com/anchore/stereoscope"
-	"github.com/anchore/stereoscope/pkg/image/oci"
+	"github.com/anchore/stereoscope/pkg/image"
 	"github.com/anchore/syft/syft"
 	"github.com/anchore/syft/syft/file"
 	"github.com/anchore/syft/syft/format"
@@ -15,7 +16,7 @@ import (
 	"github.com/anchore/syft/syft/pkg"
 	"github.com/anchore/syft/syft/sbom"
 	"github.com/anchore/syft/syft/source"
-	"github.com/anchore/syft/syft/source/stereoscopesource"
+	"github.com/anchore/syft/syft/source/sourceproviders"
 	"github.com/rs/zerolog/log"
 	"regexp"
 	"strings"
@@ -45,24 +46,62 @@ func analyzeImage(imageModel types.ImageModel) (*ContainerResolution, error) {
 
 func analyzeImageUsingSyft(imageId string) (source.Source, *sbom.SBOM, error) {
 
-	img, err := stereoscope.GetImageFromSource(context.Background(), imageId, oci.Registry, stereoscope.WithPlatform("linux/amd64"))
+	// Step 1: Load Podman credentials and configure RegistryOptions
+	registryOptions, err := configureRegistryOptions()
+	if err != nil {
+		log.Info().Msg("No credentials found for Podman, proceeding without them.")
+		registryOptions = &image.RegistryOptions{}
+	}
+
+	schemeSource, newUserInput := stereoscope.ExtractSchemeSource(imageId, allSourceTags()...)
+
+	// set up the GetSourceConfig
+	getSourceCfg := syft.DefaultGetSourceConfig().WithRegistryOptions(registryOptions)
+	if schemeSource != "" {
+		getSourceCfg = getSourceCfg.WithSources(schemeSource)
+		imageId = newUserInput
+	}
+
+	src, err := syft.GetSource(context.Background(), imageId, getSourceCfg)
+
 	if err != nil {
 		log.Err(err).Msgf("Could not create image source object.")
 		return nil, nil, err
 	}
 
-	imageSource := stereoscopesource.New(img, stereoscopesource.ImageConfig{Reference: imageId})
-	if err != nil {
-		log.Err(err).Msgf("Could not pull image: %s.", imageId)
-		return nil, nil, err
-	}
-
-	s, err := getSBOM(imageSource, true)
+	s, err := getSBOM(src, true)
 	if err != nil {
 		log.Err(err).Msgf("Could get image SBOM. image: %s.", imageId)
 		return nil, nil, err
 	}
-	return imageSource, &s, nil
+	return src, &s, nil
+}
+
+// Utility to load Podman credentials and create RegistryOptions
+func configureRegistryOptions() (*image.RegistryOptions, error) {
+	// Load Podman auth.json
+	authConfig, err := LoadPodmanAuth()
+	if err != nil {
+		return nil, fmt.Errorf("error loading Podman auth.json: %w", err)
+	}
+
+	// Generate RegistryCredentials
+	credentials, err := CreateRegistryCredentials(authConfig)
+	if err != nil {
+		return nil, fmt.Errorf("error creating registry credentials: %w", err)
+	}
+
+	// Populate RegistryOptions
+	registryOptions := &image.RegistryOptions{}
+	for _, cred := range credentials {
+		registryOptions.Credentials = append(registryOptions.Credentials, cred)
+	}
+
+	return registryOptions, nil
+}
+
+func allSourceTags() []string {
+	return collections.TaggedValueSet[source.Provider]{}.Join(sourceproviders.All("", nil)...).Tags()
 }
 
 func getSBOM(src source.Source, saveToFile bool) (sbom.SBOM, error) {
