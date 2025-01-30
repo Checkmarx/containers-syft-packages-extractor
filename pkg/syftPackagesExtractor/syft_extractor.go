@@ -2,6 +2,8 @@ package syftPackagesExtractor
 
 import (
 	"github.com/Checkmarx/containers-types/types"
+	"github.com/anchore/stereoscope"
+	"github.com/anchore/stereoscope/pkg/image"
 	"github.com/rs/zerolog/log"
 	"strings"
 )
@@ -24,10 +26,22 @@ func (spe *syftPackagesExtractor) AnalyzeImages(images []types.ImageModel) ([]*C
 
 	var containerResolution []*ContainerResolution
 
+	defer func() {
+		stereoscope.Cleanup()
+		log.Info().Msgf("cleanup temp folder.")
+	}()
+
+	// Step 1: Load Podman credentials and configure RegistryOptions
+	registryOptions, err := configureRegistryOptions()
+	if err != nil {
+		log.Info().Msg("No credentials found for Podman, proceeding without them.")
+		registryOptions = &image.RegistryOptions{}
+	}
+
 	for _, imageModel := range images {
 		log.Debug().Msgf("going to analyze image using syft. image: %s", imageModel.Name)
 
-		tmpResolution, err := analyzeImage(imageModel)
+		tmpResolution, err := analyzeImage(imageModel, registryOptions)
 		if err != nil {
 			log.Err(err).Msgf("Could not analyze image: %s.", imageModel.Name)
 			continue

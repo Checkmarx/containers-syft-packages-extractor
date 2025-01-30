@@ -30,11 +30,11 @@ var specialExtractors = []string{
 	"cocoapodspkg",
 }
 
-func analyzeImage(imageModel types.ImageModel) (*ContainerResolution, error) {
+func analyzeImage(imageModel types.ImageModel, registryOptions *image.RegistryOptions) (*ContainerResolution, error) {
 
 	log.Debug().Msgf("image is %s, found in file paths: %s", imageModel.Name, GetImageLocationsPathsString(imageModel))
 
-	_, s, err := analyzeImageUsingSyft(imageModel.Name)
+	_, s, err := analyzeImageUsingSyft(imageModel.Name, registryOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -44,14 +44,7 @@ func analyzeImage(imageModel types.ImageModel) (*ContainerResolution, error) {
 	return &result, nil
 }
 
-func analyzeImageUsingSyft(imageId string) (source.Source, *sbom.SBOM, error) {
-
-	// Step 1: Load Podman credentials and configure RegistryOptions
-	registryOptions, err := configureRegistryOptions()
-	if err != nil {
-		log.Info().Msg("No credentials found for Podman, proceeding without them.")
-		registryOptions = &image.RegistryOptions{}
-	}
+func analyzeImageUsingSyft(imageId string, registryOptions *image.RegistryOptions) (source.Source, *sbom.SBOM, error) {
 
 	schemeSource, newUserInput := stereoscope.ExtractSchemeSource(imageId, allSourceTags()...)
 
