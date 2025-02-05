@@ -31,8 +31,9 @@ type ContainerImage struct {
 }
 
 type ImageLocation struct {
-	Origin string
-	Path   string
+	Origin     string
+	Path       string
+	FinalStage bool
 }
 
 type ContainerPackage struct {

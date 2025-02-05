@@ -5,6 +5,7 @@ import (
 	"github.com/anchore/stereoscope"
 	"github.com/anchore/stereoscope/pkg/image"
 	"github.com/rs/zerolog/log"
+	"os"
 	"strings"
 )
 
@@ -28,7 +29,7 @@ func (spe *syftPackagesExtractor) AnalyzeImages(images []types.ImageModel) ([]*C
 
 	defer func() {
 		stereoscope.Cleanup()
-		log.Info().Msgf("cleanup temp folder.")
+		log.Info().Msgf("cleanup temp folder (%v/stereoscope*)", os.TempDir())
 	}()
 
 	// Step 1: Load Podman credentials and configure RegistryOptions

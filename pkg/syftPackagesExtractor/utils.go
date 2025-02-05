@@ -424,8 +424,9 @@ func getImageLocations(imageLocations []types.ImageLocation) []ImageLocation {
 	var slice []ImageLocation
 	for _, location := range imageLocations {
 		slice = append(slice, ImageLocation{
-			Origin: location.Origin,
-			Path:   location.Path,
+			Origin:     location.Origin,
+			Path:       location.Path,
+			FinalStage: location.FinalStage,
 		})
 	}
 	return slice

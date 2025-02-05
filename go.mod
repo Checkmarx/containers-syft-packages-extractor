@@ -3,8 +3,8 @@ module github.com/Checkmarx/containers-syft-packages-extractor
 go 1.23.3
 
 require (
-	github.com/Checkmarx/containers-types v1.0.0
-	github.com/anchore/go-collections v0.0.0-20240216214351-5baf374cca6f
+	github.com/Checkmarx/containers-types v1.0.1
+	github.com/anchore/go-collections v0.0.0-20241211140901-567f400e9a46
 	github.com/anchore/stereoscope v0.0.13
 	github.com/anchore/syft v1.19.0
 	github.com/rs/zerolog v1.33.0
@@ -198,7 +198,7 @@ require (
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028 // indirect
 	google.golang.org/genproto v0.0.0-20241118233622-e639e219e697 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241223144023-3abc09e42ca8 // indirect
-	google.golang.org/grpc v1.67.3 // indirect
+	google.golang.org/grpc v1.70.1-0.20250123180834-11fb3d8f570c // indirect
 	google.golang.org/protobuf v1.36.3 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
