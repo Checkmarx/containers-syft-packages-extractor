@@ -29,6 +29,7 @@ func TestSyftExtractor(t *testing.T) {
 		}
 
 		checkResults(t, resolutions, expectedValues)
+
 	})
 
 	t.Run("ValidPrivateImage", func(t *testing.T) {
