@@ -19,7 +19,7 @@ jobs:
 
       - name: go test with coverage
         run: |
-            go run gotest.tools/gotestsum@latest --format testdox -- -coverprofile=cover.out ./pkg/containersSyftPackagesExtractor...
+            go run gotest.tools/gotestsum@latest --format testdox -- -coverprofile=cover.out ./pkg/syftPackagesExtractor...
             
       - name: Check if total coverage is greater then 70
         shell: bash
