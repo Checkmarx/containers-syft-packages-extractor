@@ -1,0 +1,27 @@
+name: Validate Jira Key in Pull Request
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited]
+  push:
+    branches: main # check how it can be always the default, either master or main or whatever
+
+jobs:
+  validate_jira_key:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate Jira Key
+        if: ${{ github.event_name != 'push' }}
+        run: |
+          pr_title=$(curl -s \
+                     -H "Accept: application/vnd.github.v3+json" \
+                     ${{ github.api_url }}/repos/${{ github.repository }}/pulls/${{ github.event.number }} | \
+                     jq -r '.title')
+
+          if [[ ! $pr_title =~ (\(|\[)?[A-Z]+-[0-9]+(,[A-Z]+-[0-9]+)*(\)|\])? ]]; then
+            echo "ERROR: Pull request title does not contain a valid Jira key."
+            echo "Edit the PR title and retrigger the workflow"
+            exit 1
+          else
+            echo "PR title is valid."
+          fi
