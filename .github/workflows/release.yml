@@ -46,6 +46,8 @@ jobs:
 
       - name: Create a new tag
         run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
           new_tag=${{ steps.bump.outputs.new_version }}
           git tag $new_tag -m "${{ env.formatted_title }}"
           git push origin $new_tag
