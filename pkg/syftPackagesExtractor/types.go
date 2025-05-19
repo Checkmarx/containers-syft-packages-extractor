@@ -2,6 +2,7 @@ package syftPackagesExtractor
 
 import (
 	"fmt"
+
 	"github.com/anchore/syft/syft/pkg"
 )
 
@@ -16,6 +17,10 @@ func packageTypeToPackageManager(packageType pkg.Type) string {
 	case pkg.PythonPkg:
 		return string(Python)
 	case pkg.PhpComposerPkg:
+		return string(Php)
+	case pkg.PhpPeclPkg:
+		return string(Php)
+	case pkg.PhpPearPkg:
 		return string(Php)
 	case pkg.JavaPkg:
 		return string(Maven)
@@ -43,9 +48,31 @@ func packageTypeToPackageManager(packageType pkg.Type) string {
 		return string(DartPub)
 	case pkg.Rpkg:
 		return string(R)
-	case pkg.UnknownPkg, pkg.BinaryPkg, pkg.ErlangOTPPkg, pkg.GithubActionPkg, pkg.GithubActionWorkflowPkg,
-		pkg.GraalVMNativeImagePkg, pkg.HexPkg, pkg.LinuxKernelPkg, pkg.LinuxKernelModulePkg,
-		pkg.NixPkg, pkg.SwiftPkg, pkg.WordpressPluginPkg:
+	case pkg.BinaryPkg:
+		return string(Binary)
+	case pkg.BitnamiPkg:
+		return string(Bitnami)
+	case pkg.ErlangOTPPkg:
+		return string(Erlang)
+	case pkg.GithubActionPkg, pkg.GithubActionWorkflowPkg:
+		return string(GithubAction)
+	case pkg.HexPkg:
+		return string(Hex)
+	case pkg.LinuxKernelPkg, pkg.LinuxKernelModulePkg:
+		return string(LinuxKernel)
+	case pkg.NixPkg:
+		return string(Nix)
+	case pkg.OpamPkg:
+		return string(Opam)
+	case pkg.LuaRocksPkg:
+		return string(LuaRocks)
+	case pkg.SwiplPackPkg:
+		return string(SwiplPack)
+	case pkg.TerraformPkg:
+		return string(Terraform)
+	case pkg.HomebrewPkg:
+		return string(Homebrew)
+	case pkg.UnknownPkg, pkg.WordpressPluginPkg:
 		return string(Unsupported)
 	default:
 		panic(fmt.Sprintf("Failed to cast syft package type: %s into SupportedPackageManagerPrefixType", packageType))
@@ -72,6 +99,18 @@ const (
 	Kb            PackageManagerType = "Kb"
 	DartPub       PackageManagerType = "DartPub"
 	R             PackageManagerType = "R"
+	Binary        PackageManagerType = "Binary"
+	Bitnami       PackageManagerType = "Bitnami"
+	Erlang        PackageManagerType = "Erlang"
+	GithubAction  PackageManagerType = "GithubAction"
+	Hex           PackageManagerType = "Hex"
+	LinuxKernel   PackageManagerType = "LinuxKernel"
+	Nix           PackageManagerType = "Nix"
+	Opam          PackageManagerType = "Opam"
+	LuaRocks      PackageManagerType = "LuaRocks"
+	SwiplPack     PackageManagerType = "SwiplPack"
+	Terraform     PackageManagerType = "Terraform"
+	Homebrew      PackageManagerType = "Homebrew"
 	Oval          PackageManagerType = "Oval"
 	Unsupported   PackageManagerType = "Unsupported"
 )
