@@ -53,7 +53,7 @@ func packageTypeToPackageManager(packageType pkg.Type) string {
 	case pkg.BitnamiPkg:
 		return string(Bitnami)
 	case pkg.ErlangOTPPkg:
-		return string(Erlang)
+		return string(Hex)
 	case pkg.GithubActionPkg, pkg.GithubActionWorkflowPkg:
 		return string(GithubAction)
 	case pkg.HexPkg:
