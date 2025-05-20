@@ -20,8 +20,6 @@ func packageTypeToPackageManager(packageType pkg.Type) string {
 		return string(Php)
 	case pkg.PhpPeclPkg:
 		return string(Php)
-	case pkg.PhpPearPkg:
-		return string(Php)
 	case pkg.JavaPkg:
 		return string(Maven)
 	case pkg.GoModulePkg:
@@ -70,8 +68,6 @@ func packageTypeToPackageManager(packageType pkg.Type) string {
 		return string(SwiplPack)
 	case pkg.TerraformPkg:
 		return string(Terraform)
-	case pkg.HomebrewPkg:
-		return string(Homebrew)
 	case pkg.UnknownPkg, pkg.WordpressPluginPkg:
 		return string(Unsupported)
 	default:
