@@ -1,9 +1,12 @@
 package syftPackagesExtractor
 
 import (
+	"testing"
+
+	"github.com/Checkmarx/containers-types/types"
+	"github.com/anchore/syft/syft/linux"
 	"github.com/anchore/syft/syft/pkg"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestExtractPackageName(t *testing.T) {
@@ -121,4 +124,225 @@ func TestGetSyftArtifactsWithoutUnsupportedTypesDuplications(t *testing.T) {
 	result := getSyftArtifactsWithoutUnsupportedTypesDuplications(collection)
 
 	assert.Equal(t, len(expected), len(result))
+}
+
+func TestRemoveSha256(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "Remove sha256 prefix",
+			input:    "sha256:abc123",
+			expected: "abc123",
+		},
+		{
+			name:     "No sha256 prefix",
+			input:    "abc123",
+			expected: "abc123",
+		},
+		{
+			name:     "Empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "Whitespace string",
+			input:    "   ",
+			expected: "   ",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := removeSha256(test.input)
+			assert.Equal(t, test.expected, result)
+		})
+	}
+}
+
+func TestGetImageLocations(t *testing.T) {
+	tests := []struct {
+		name           string
+		imageLocations []types.ImageLocation
+		expected       []ImageLocation
+	}{
+		{
+			name: "Single location",
+			imageLocations: []types.ImageLocation{
+				{
+					Origin:     types.DockerFileOrigin,
+					Path:       "/path/to/Dockerfile",
+					FinalStage: true,
+				},
+			},
+			expected: []ImageLocation{
+				{
+					Origin:     types.DockerFileOrigin,
+					Path:       "/path/to/Dockerfile",
+					FinalStage: true,
+				},
+			},
+		},
+		{
+			name: "Multiple locations",
+			imageLocations: []types.ImageLocation{
+				{
+					Origin:     types.DockerFileOrigin,
+					Path:       "/path/to/Dockerfile",
+					FinalStage: true,
+				},
+				{
+					Origin:     types.UserInput,
+					Path:       "None",
+					FinalStage: false,
+				},
+			},
+			expected: []ImageLocation{
+				{
+					Origin:     types.DockerFileOrigin,
+					Path:       "/path/to/Dockerfile",
+					FinalStage: true,
+				},
+				{
+					Origin:     types.UserInput,
+					Path:       "None",
+					FinalStage: false,
+				},
+			},
+		},
+		{
+			name:           "Empty locations",
+			imageLocations: []types.ImageLocation{},
+			expected:       nil,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := getImageLocations(test.imageLocations)
+			assert.Equal(t, test.expected, result)
+		})
+	}
+}
+
+func TestGetImageLocationsPathsString(t *testing.T) {
+	tests := []struct {
+		name     string
+		imgModel types.ImageModel
+		expected string
+	}{
+		{
+			name: "Single location",
+			imgModel: types.ImageModel{
+				ImageLocations: []types.ImageLocation{
+					{Path: "/path/to/Dockerfile"},
+				},
+			},
+			expected: "/path/to/Dockerfile",
+		},
+		{
+			name: "Multiple locations",
+			imgModel: types.ImageModel{
+				ImageLocations: []types.ImageLocation{
+					{Path: "/path/to/Dockerfile"},
+					{Path: "/path/to/AnotherDockerfile"},
+				},
+			},
+			expected: "/path/to/Dockerfile, /path/to/AnotherDockerfile",
+		},
+		{
+			name: "Empty locations",
+			imgModel: types.ImageModel{
+				ImageLocations: []types.ImageLocation{},
+			},
+			expected: "",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := GetImageLocationsPathsString(test.imgModel)
+			assert.Equal(t, test.expected, result)
+		})
+	}
+}
+
+func TestGetDistro(t *testing.T) {
+	tests := []struct {
+		name     string
+		release  *linux.Release
+		expected string
+	}{
+		{
+			name: "Valid release",
+			release: &linux.Release{
+				ID:        "ubuntu",
+				VersionID: "20.04",
+			},
+			expected: "ubuntu:20.04",
+		},
+		{
+			name:     "Nil release",
+			release:  nil,
+			expected: types.NoFilePath,
+		},
+		{
+			name: "Empty ID",
+			release: &linux.Release{
+				ID:        "",
+				VersionID: "20.04",
+			},
+			expected: types.NoFilePath,
+		},
+		{
+			name: "Empty VersionID",
+			release: &linux.Release{
+				ID:        "ubuntu",
+				VersionID: "",
+			},
+			expected: types.NoFilePath,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := getDistro(test.release)
+			assert.Equal(t, test.expected, result)
+		})
+	}
+}
+
+func TestExtractPackageLicenses(t *testing.T) {
+	tests := []struct {
+		name     string
+		pack     pkg.Package
+		expected []string
+	}{
+		{
+			name: "Package with licenses",
+			pack: pkg.Package{
+				Licenses: pkg.NewLicenseSet(
+					pkg.NewLicense("MIT"),
+					pkg.NewLicense("Apache-2.0"),
+				),
+			},
+			expected: []string{"Apache-2.0", "MIT"},
+		},
+		{
+			name: "Package without licenses",
+			pack: pkg.Package{
+				Licenses: pkg.NewLicenseSet(),
+			},
+			expected: nil,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := extractPackageLicenses(test.pack)
+			assert.Equal(t, test.expected, result)
+		})
+	}
 }
