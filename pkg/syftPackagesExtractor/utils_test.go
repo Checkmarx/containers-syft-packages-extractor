@@ -4,8 +4,10 @@ import (
 	"testing"
 
 	"github.com/Checkmarx/containers-types/types"
+	"github.com/anchore/syft/syft/file"
 	"github.com/anchore/syft/syft/linux"
 	"github.com/anchore/syft/syft/pkg"
+	"github.com/anchore/syft/syft/source"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -343,6 +345,230 @@ func TestExtractPackageLicenses(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			result := extractPackageLicenses(test.pack)
 			assert.Equal(t, test.expected, result)
+		})
+	}
+}
+
+func TestPackageTypeToPackageManager(t *testing.T) {
+	tests := []struct {
+		name     string
+		pkgType  pkg.Type
+		expected string
+	}{
+		{
+			name:     "Apk package type",
+			pkgType:  pkg.ApkPkg,
+			expected: string(Oval),
+		},
+		{
+			name:     "Npm package type",
+			pkgType:  pkg.NpmPkg,
+			expected: string(Npm),
+		},
+		{
+			name:     "Java package type",
+			pkgType:  pkg.JavaPkg,
+			expected: string(Maven),
+		},
+		{
+			name:     "Unknown package type",
+			pkgType:  pkg.UnknownPkg,
+			expected: string(Unsupported),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := packageTypeToPackageManager(test.pkgType)
+			assert.Equal(t, test.expected, result)
+		})
+	}
+}
+
+func TestExtractPackageLayerIds(t *testing.T) {
+	tests := []struct {
+		name      string
+		locations file.LocationSet
+		expected  []string
+	}{
+		{
+			name: "Single location with sha256",
+			locations: func() file.LocationSet {
+				loc := file.NewLocation("path/to/file")
+				loc.Coordinates.FileSystemID = "sha256:abc123"
+				return file.NewLocationSet(loc)
+			}(),
+			expected: []string{"abc123"},
+		},
+		{
+			name: "Multiple locations",
+			locations: func() file.LocationSet {
+				loc1 := file.NewLocation("path/to/file1")
+				loc1.Coordinates.FileSystemID = "sha256:abc123"
+				loc2 := file.NewLocation("path/to/file2")
+				loc2.Coordinates.FileSystemID = "sha256:def456"
+				return file.NewLocationSet(loc1, loc2)
+			}(),
+			expected: []string{"abc123", "def456"},
+		},
+		{
+			name:      "Empty locations",
+			locations: file.NewLocationSet(),
+			expected:  []string{},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := extractPackageLayerIds(test.locations)
+			assert.Equal(t, test.expected, result)
+		})
+	}
+}
+
+func TestExtractLayerIds(t *testing.T) {
+	tests := []struct {
+		name     string
+		layers   []Layer
+		expected []string
+	}{
+		{
+			name: "Layers with IDs",
+			layers: []Layer{
+				{LayerId: "abc123"},
+				{LayerId: "def456"},
+			},
+			expected: []string{"abc123", "def456"},
+		},
+		{
+			name: "Layers with empty IDs",
+			layers: []Layer{
+				{LayerId: ""},
+				{LayerId: "def456"},
+			},
+			expected: []string{"def456"},
+		},
+		{
+			name:     "Empty layers",
+			layers:   []Layer{},
+			expected: []string{},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := extractLayerIds(test.layers)
+			assert.Equal(t, test.expected, result)
+		})
+	}
+}
+
+func TestGetSize(t *testing.T) {
+	tests := []struct {
+		name     string
+		layerId  string
+		layers   []source.LayerMetadata
+		expected int64
+	}{
+		{
+			name:    "Layer found with sha256",
+			layerId: "abc123",
+			layers: []source.LayerMetadata{
+				{Digest: "sha256:abc123", Size: 1000},
+			},
+			expected: 1000,
+		},
+		{
+			name:    "Layer found without sha256",
+			layerId: "abc123",
+			layers: []source.LayerMetadata{
+				{Digest: "abc123", Size: 1000},
+			},
+			expected: 1000,
+		},
+		{
+			name:    "Layer not found",
+			layerId: "nonexistent",
+			layers: []source.LayerMetadata{
+				{Digest: "sha256:abc123", Size: 1000},
+			},
+			expected: 0,
+		},
+		{
+			name:     "Empty layers",
+			layerId:  "abc123",
+			layers:   []source.LayerMetadata{},
+			expected: 0,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := getSize(test.layerId, test.layers)
+			assert.Equal(t, test.expected, result)
+		})
+	}
+}
+
+func TestGetPackageRelationships(t *testing.T) {
+	tests := []struct {
+		name         string
+		containerPkg pkg.Package
+		expectedName string
+		expectedVer  string
+	}{
+		{
+			name: "APK package",
+			containerPkg: pkg.Package{
+				Version: "1.0.0",
+				Metadata: pkg.ApkDBEntry{
+					OriginPackage: "test-pkg",
+					Version:       "1.0.0",
+				},
+			},
+			expectedName: "test-pkg",
+			expectedVer:  "1.0.0",
+		},
+		{
+			name: "DEB package",
+			containerPkg: pkg.Package{
+				Version: "1.0.0",
+				Metadata: pkg.DpkgDBEntry{
+					Source:        "test-pkg",
+					SourceVersion: "1.0.0",
+				},
+			},
+			expectedName: "test-pkg",
+			expectedVer:  "1.0.0",
+		},
+		{
+			name: "RPM package",
+			containerPkg: pkg.Package{
+				Version: "1.0.0",
+				Metadata: pkg.RpmDBEntry{
+					SourceRpm: "test-pkg",
+					Version:   "1.0.0",
+				},
+			},
+			expectedName: "test-pkg",
+			expectedVer:  "1.0.0",
+		},
+		{
+			name: "Unknown package type",
+			containerPkg: pkg.Package{
+				Version:  "1.0.0",
+				Metadata: nil,
+			},
+			expectedName: "",
+			expectedVer:  "",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			name, ver := getPackageRelationships(test.containerPkg)
+			assert.Equal(t, test.expectedName, name)
+			assert.Equal(t, test.expectedVer, ver)
 		})
 	}
 }
