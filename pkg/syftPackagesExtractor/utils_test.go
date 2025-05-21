@@ -414,7 +414,7 @@ func TestExtractPackageLayerIds(t *testing.T) {
 		{
 			name:      "Empty locations",
 			locations: file.NewLocationSet(),
-			expected:  []string{},
+			expected:  nil,
 		},
 	}
 
@@ -451,7 +451,7 @@ func TestExtractLayerIds(t *testing.T) {
 		{
 			name:     "Empty layers",
 			layers:   []Layer{},
-			expected: []string{},
+			expected: nil,
 		},
 	}
 
