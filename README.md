@@ -1,6 +1,6 @@
 # Syft Packages Extractor
 
-This package is designed to analyze container images and extract package information using the Syft tool.
+This package is designed to analyze container images and extract package information using the Syft tool by Anchore.
 
 ## Table of Contents
 1. [Overview](#overview)
@@ -22,7 +22,7 @@ The Syft Packages Extractor analyzes container images to extract detailed packag
 
 ## Installation
 
-To install this package, you need to have [Go](https://golang.org/doc/install) installed on your machine.
+To install this package, you must have [Go](https://golang.org/doc/install) installed on your machine.
 
 1. Clone the repository:
     ```sh
