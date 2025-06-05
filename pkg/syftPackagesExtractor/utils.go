@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strings"
+
 	"github.com/Checkmarx/containers-types/types"
 	"github.com/anchore/go-collections"
 	"github.com/anchore/stereoscope"
@@ -18,8 +21,6 @@ import (
 	"github.com/anchore/syft/syft/source"
 	"github.com/anchore/syft/syft/source/sourceproviders"
 	"github.com/rs/zerolog/log"
-	"regexp"
-	"strings"
 )
 
 var specialExtractors = []string{
@@ -34,40 +35,27 @@ func analyzeImage(imageModel types.ImageModel, registryOptions *image.RegistryOp
 
 	log.Debug().Msgf("image is %s, found in file paths: %s", imageModel.Name, GetImageLocationsPathsString(imageModel))
 
-	_, s, err := analyzeImageUsingSyft(imageModel.Name, registryOptions)
+	img, err := stereoscope.GetImage(context.Background(), imageModel.Name, stereoscope.WithRegistryOptions(*registryOptions))
 	if err != nil {
 		return nil, err
 	}
+	defer img.Cleanup()
 
-	result := transformSBOMToContainerResolution(*s, imageModel)
-
-	return &result, nil
-}
-
-func analyzeImageUsingSyft(imageId string, registryOptions *image.RegistryOptions) (source.Source, *sbom.SBOM, error) {
-
-	schemeSource, newUserInput := stereoscope.ExtractSchemeSource(imageId, allSourceTags()...)
-
-	// set up the GetSourceConfig
-	getSourceCfg := syft.DefaultGetSourceConfig().WithRegistryOptions(registryOptions)
-	if schemeSource != "" {
-		getSourceCfg = getSourceCfg.WithSources(schemeSource)
-		imageId = newUserInput
-	}
-
-	src, err := syft.GetSource(context.Background(), imageId, getSourceCfg)
-
+	src, err := syft.GetSource(context.Background(), imageModel.Name, syft.DefaultGetSourceConfig().WithRegistryOptions(registryOptions))
 	if err != nil {
 		log.Err(err).Msgf("Could not create image source object.")
-		return nil, nil, err
+		return nil, err
 	}
 
 	s, err := getSBOM(src, true)
 	if err != nil {
-		log.Err(err).Msgf("Could get image SBOM. image: %s.", imageId)
-		return nil, nil, err
+		log.Err(err).Msgf("Could get image SBOM. image: %s.", imageModel.Name)
+		return nil, err
 	}
-	return src, &s, nil
+
+	result := transformSBOMToContainerResolution(s, imageModel)
+
+	return &result, nil
 }
 
 // Utility to load Podman credentials and create RegistryOptions
