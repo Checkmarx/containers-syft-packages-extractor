@@ -209,12 +209,6 @@ func TestCreateRegistryCredentials(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:        "Nil auth config",
-			authConfig:  nil,
-			expected:    nil,
-			expectError: false,
-		},
-		{
 			name: "Empty auth config",
 			authConfig: &PodmanAuth{
 				Auths: map[string]struct {
@@ -222,6 +216,44 @@ func TestCreateRegistryCredentials(t *testing.T) {
 				}{},
 			},
 			expected:    []image.RegistryCredentials{},
+			expectError: false,
+		},
+		{
+			name: "Auth config with empty auth strings",
+			authConfig: &PodmanAuth{
+				Auths: map[string]struct {
+					Auth string `json:"auth"`
+				}{
+					"docker.io": {Auth: ""},
+					"quay.io":   {Auth: base64.StdEncoding.EncodeToString([]byte("quayuser:quaypass"))},
+				},
+			},
+			expected: []image.RegistryCredentials{
+				{
+					Authority: "quay.io",
+					Username:  "quayuser",
+					Password:  "quaypass",
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "Auth config with malformed base64",
+			authConfig: &PodmanAuth{
+				Auths: map[string]struct {
+					Auth string `json:"auth"`
+				}{
+					"docker.io": {Auth: "not-base64"},
+					"quay.io":   {Auth: base64.StdEncoding.EncodeToString([]byte("quayuser:quaypass"))},
+				},
+			},
+			expected: []image.RegistryCredentials{
+				{
+					Authority: "quay.io",
+					Username:  "quayuser",
+					Password:  "quaypass",
+				},
+			},
 			expectError: false,
 		},
 	}
@@ -233,11 +265,15 @@ func TestCreateRegistryCredentials(t *testing.T) {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, len(test.expected), len(result))
-				for i, expected := range test.expected {
-					assert.Equal(t, expected.Authority, result[i].Authority)
-					assert.Equal(t, expected.Username, result[i].Username)
-					assert.Equal(t, expected.Password, result[i].Password)
+				if test.expected == nil {
+					assert.Nil(t, result)
+				} else {
+					assert.Equal(t, len(test.expected), len(result))
+					for i, expected := range test.expected {
+						assert.Equal(t, expected.Authority, result[i].Authority)
+						assert.Equal(t, expected.Username, result[i].Username)
+						assert.Equal(t, expected.Password, result[i].Password)
+					}
 				}
 			}
 		})
