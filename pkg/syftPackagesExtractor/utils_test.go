@@ -102,6 +102,34 @@ func TestExtractName(t *testing.T) {
 			groupId:     "",
 			expected:    "testPackage",
 		},
+		{
+			name:        "GroupID equals package name",
+			packageName: "testPackage",
+			purl:        "https://example.com/testPackage/testPackage",
+			groupId:     "testPackage",
+			expected:    "testPackage",
+		},
+		{
+			name:        "Empty PURL",
+			packageName: "testPackage",
+			purl:        "",
+			groupId:     "",
+			expected:    "testPackage",
+		},
+		{
+			name:        "Invalid PURL format",
+			packageName: "testPackage",
+			purl:        "invalid-url",
+			groupId:     "",
+			expected:    "testPackage",
+		},
+		{
+			name:        "PURL with empty group ID",
+			packageName: "testPackage",
+			purl:        "https://example.com//testPackage",
+			groupId:     "",
+			expected:    "testPackage",
+		},
 	}
 
 	for _, test := range tests {
@@ -113,19 +141,50 @@ func TestExtractName(t *testing.T) {
 }
 
 func TestGetSyftArtifactsWithoutUnsupportedTypesDuplications(t *testing.T) {
+	tests := []struct {
+		name     string
+		packages []pkg.Package
+		expected []pkg.Package
+	}{
+		{
+			name: "Multiple packages with same name and version",
+			packages: []pkg.Package{
+				{Name: "test1", Version: "1.0", Type: pkg.JavaPkg},
+				{Name: "test1", Version: "1.0", Type: pkg.UnknownPkg},
+				{Name: "test1", Version: "1.0", Type: pkg.NpmPkg},
+			},
+			expected: []pkg.Package{
+				{Name: "test1", Version: "1.0", Type: pkg.JavaPkg},
+			},
+		},
+		{
+			name: "Packages with empty name or version",
+			packages: []pkg.Package{
+				{Name: "", Version: "1.0", Type: pkg.JavaPkg},
+				{Name: "test1", Version: "", Type: pkg.JavaPkg},
+				{Name: "test2", Version: "2.0", Type: pkg.JavaPkg},
+			},
+			expected: []pkg.Package{
+				{Name: "test2", Version: "2.0", Type: pkg.JavaPkg},
+			},
+		},
+		{
+			name: "All unsupported package types",
+			packages: []pkg.Package{
+				{Name: "test1", Version: "1.0", Type: pkg.UnknownPkg},
+				{Name: "test2", Version: "2.0", Type: pkg.UnknownPkg},
+			},
+			expected: []pkg.Package{},
+		},
+	}
 
-	pkg1 := pkg.Package{Name: "test1", Version: "1.0", Type: pkg.JavaPkg}
-	pkg2 := pkg.Package{Name: "test2", Version: "2.0", Type: pkg.ApkPkg}
-	pkg3 := pkg.Package{Name: "test1", Version: "1.0", Type: pkg.UnknownPkg}
-	pkg4 := pkg.Package{Name: "test4", Version: "2.0", Type: pkg.JavaPkg}
-
-	collection := pkg.NewCollection(pkg1, pkg2, pkg3, pkg4)
-
-	expected := []pkg.Package{pkg1, pkg2, pkg4}
-
-	result := getSyftArtifactsWithoutUnsupportedTypesDuplications(collection)
-
-	assert.Equal(t, len(expected), len(result))
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			collection := pkg.NewCollection(test.packages...)
+			result := getSyftArtifactsWithoutUnsupportedTypesDuplications(collection)
+			assert.Equal(t, len(test.expected), len(result))
+		})
+	}
 }
 
 func TestRemoveSha256(t *testing.T) {
@@ -561,6 +620,78 @@ func TestGetPackageRelationships(t *testing.T) {
 			},
 			expectedName: "",
 			expectedVer:  "",
+		},
+		{
+			name: "APK package with empty origin package",
+			containerPkg: pkg.Package{
+				Version: "1.0.0",
+				Metadata: pkg.ApkDBEntry{
+					OriginPackage: "",
+					Version:       "1.0.0",
+				},
+			},
+			expectedName: "",
+			expectedVer:  "",
+		},
+		{
+			name: "DEB package with empty source",
+			containerPkg: pkg.Package{
+				Version: "1.0.0",
+				Metadata: pkg.DpkgDBEntry{
+					Source:        "",
+					SourceVersion: "1.0.0",
+				},
+			},
+			expectedName: "",
+			expectedVer:  "",
+		},
+		{
+			name: "RPM package with empty source RPM",
+			containerPkg: pkg.Package{
+				Version: "1.0.0",
+				Metadata: pkg.RpmDBEntry{
+					SourceRpm: "",
+					Version:   "1.0.0",
+				},
+			},
+			expectedName: "",
+			expectedVer:  "",
+		},
+		{
+			name: "APK package with missing version",
+			containerPkg: pkg.Package{
+				Version: "1.0.0",
+				Metadata: pkg.ApkDBEntry{
+					OriginPackage: "test-pkg",
+					Version:       "",
+				},
+			},
+			expectedName: "test-pkg",
+			expectedVer:  "1.0.0",
+		},
+		{
+			name: "DEB package with missing source version",
+			containerPkg: pkg.Package{
+				Version: "1.0.0",
+				Metadata: pkg.DpkgDBEntry{
+					Source:        "test-pkg",
+					SourceVersion: "",
+				},
+			},
+			expectedName: "test-pkg",
+			expectedVer:  "1.0.0",
+		},
+		{
+			name: "RPM package with missing version",
+			containerPkg: pkg.Package{
+				Version: "1.0.0",
+				Metadata: pkg.RpmDBEntry{
+					SourceRpm: "test-pkg",
+					Version:   "",
+				},
+			},
+			expectedName: "test-pkg",
+			expectedVer:  "1.0.0",
 		},
 	}
 
