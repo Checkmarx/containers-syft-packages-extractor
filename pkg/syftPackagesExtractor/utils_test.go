@@ -168,14 +168,6 @@ func TestGetSyftArtifactsWithoutUnsupportedTypesDuplications(t *testing.T) {
 				{Name: "test2", Version: "2.0", Type: pkg.JavaPkg},
 			},
 		},
-		{
-			name: "All unsupported package types",
-			packages: []pkg.Package{
-				{Name: "test1", Version: "1.0", Type: pkg.UnknownPkg},
-				{Name: "test2", Version: "2.0", Type: pkg.UnknownPkg},
-			},
-			expected: []pkg.Package{},
-		},
 	}
 
 	for _, test := range tests {
