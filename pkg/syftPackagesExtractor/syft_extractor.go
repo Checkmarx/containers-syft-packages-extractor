@@ -1,16 +1,18 @@
 package syftPackagesExtractor
 
 import (
+	"os"
+	"strings"
+
 	"github.com/Checkmarx/containers-types/types"
 	"github.com/anchore/stereoscope"
 	"github.com/anchore/stereoscope/pkg/image"
 	"github.com/rs/zerolog/log"
-	"os"
-	"strings"
 )
 
 type SyftPackagesExtractor interface {
 	AnalyzeImages(images []types.ImageModel) ([]*ContainerResolution, error)
+	AnalyzeImagesWithPlatform(images []types.ImageModel, platform string) ([]*ContainerResolution, error)
 }
 
 type syftPackagesExtractor struct {
@@ -21,6 +23,10 @@ func NewSyftPackagesExtractor() SyftPackagesExtractor {
 }
 
 func (spe *syftPackagesExtractor) AnalyzeImages(images []types.ImageModel) ([]*ContainerResolution, error) {
+	return spe.AnalyzeImagesWithPlatform(images, "")
+}
+
+func (spe *syftPackagesExtractor) AnalyzeImagesWithPlatform(images []types.ImageModel, platform string) ([]*ContainerResolution, error) {
 	if images == nil {
 		return []*ContainerResolution{}, nil
 	}
@@ -42,7 +48,7 @@ func (spe *syftPackagesExtractor) AnalyzeImages(images []types.ImageModel) ([]*C
 	for _, imageModel := range images {
 		log.Debug().Msgf("going to analyze image using syft. image: %s", imageModel.Name)
 
-		tmpResolution, err := analyzeImage(imageModel, registryOptions)
+		tmpResolution, err := analyzeImage(imageModel, registryOptions, platform)
 		if err != nil {
 			log.Err(err).Msgf("Could not analyze image: %s.", imageModel.Name)
 			continue
