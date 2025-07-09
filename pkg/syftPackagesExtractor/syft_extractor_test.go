@@ -1,8 +1,11 @@
 package syftPackagesExtractor
 
 import (
-	"github.com/Checkmarx/containers-types/types"
+	"encoding/json"
 	"testing"
+
+	"github.com/Checkmarx/containers-types/types"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestSyftExtractor(t *testing.T) {
@@ -138,6 +141,58 @@ func TestSyftExtractor(t *testing.T) {
 
 		checkResults(t, resolutions, expectedValues)
 	})
+}
+
+func TestContainerResolutionIncludesCycloneDxSBOM(t *testing.T) {
+	// Test that the ContainerResolution includes the CycloneDxSBOM field
+	resolution := ContainerResolution{
+		ContainerImage: ContainerImage{
+			ImageName: "test-image",
+			ImageTag:  "latest",
+		},
+		ContainerPackages: []ContainerPackage{},
+		CycloneDxSBOM:     "H4sIAAAAAAAAA...", // Example base64 encoded gzipped content
+	}
+
+	// Convert to JSON to verify the field is serialized
+	jsonData, err := json.Marshal(resolution)
+	assert.NoError(t, err)
+
+	// Verify the JSON contains the cycloneDxSBOM field
+	var result map[string]interface{}
+	err = json.Unmarshal(jsonData, &result)
+	assert.NoError(t, err)
+
+	// Check that the cycloneDxSBOM field exists
+	cycloneDxSBOM, exists := result["cycloneDxSBOM"]
+	assert.True(t, exists, "cycloneDxSBOM field should exist in JSON output")
+	assert.NotNil(t, cycloneDxSBOM, "cycloneDxSBOM should not be nil")
+	assert.Equal(t, "H4sIAAAAAAAAA...", cycloneDxSBOM, "cycloneDxSBOM value should match")
+}
+
+func TestCycloneDxSBOMFieldOmittedWhenEmpty(t *testing.T) {
+	// Test that the CycloneDxSBOM field is omitted when empty
+	resolution := ContainerResolution{
+		ContainerImage: ContainerImage{
+			ImageName: "test-image",
+			ImageTag:  "latest",
+		},
+		ContainerPackages: []ContainerPackage{},
+		CycloneDxSBOM:     "", // Empty CycloneDxSBOM
+	}
+
+	// Convert to JSON
+	jsonData, err := json.Marshal(resolution)
+	assert.NoError(t, err)
+
+	// Verify the JSON does not contain the cycloneDxSBOM field when empty
+	var result map[string]interface{}
+	err = json.Unmarshal(jsonData, &result)
+	assert.NoError(t, err)
+
+	// Check that the cycloneDxSBOM field does not exist when empty
+	_, exists := result["cycloneDxSBOM"]
+	assert.False(t, exists, "cycloneDxSBOM field should not exist in JSON output when empty")
 }
 
 func checkResults(t *testing.T, resolutions []*ContainerResolution, expectedValues map[string]struct {

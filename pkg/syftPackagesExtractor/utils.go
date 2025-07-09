@@ -121,6 +121,15 @@ func analyzeImage(imageModel types.ImageModel, registryOptions *image.RegistryOp
 
 	result := transformSBOMToContainerResolution(s, imageModel)
 
+	// Generate CycloneDX SBOM
+	cycloneDxSBOM, err := generateCycloneDxSBOM(s)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to generate CycloneDX SBOM, continuing without it")
+		// Continue without the CycloneDX SBOM if generation fails
+	} else {
+		result.CycloneDxSBOM = cycloneDxSBOM
+	}
+
 	return &result, nil
 }
 
@@ -169,6 +178,12 @@ func formatSBOM(s sbom.SBOM) []byte {
 		panic(err)
 	}
 	return bytes
+}
+
+// generateCycloneDxSBOM generates a zipped, base64 encoded CycloneDX SBOM
+func generateCycloneDxSBOM(s sbom.SBOM) (string, error) {
+	// Delegate to the helper function
+	return tryGenerateCycloneDxSBOM(s)
 }
 
 func transformSBOMToContainerResolution(s sbom.SBOM, imageModel types.ImageModel) ContainerResolution {
