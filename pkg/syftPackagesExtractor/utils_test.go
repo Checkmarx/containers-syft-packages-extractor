@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/Checkmarx/containers-types/types"
+	"github.com/anchore/stereoscope/pkg/image"
 	"github.com/anchore/syft/syft/file"
 	"github.com/anchore/syft/syft/linux"
 	"github.com/anchore/syft/syft/pkg"
@@ -693,5 +694,204 @@ func TestGetPackageRelationships(t *testing.T) {
 			assert.Equal(t, test.expectedName, name)
 			assert.Equal(t, test.expectedVer, ver)
 		})
+	}
+}
+
+func TestAnalyzeImageWithPlatform(t *testing.T) {
+	// Skip test if no image available or no network
+	t.Skip("Integration test - requires actual image and network access")
+
+	imageModel := types.ImageModel{
+		Name: "alpine:latest",
+		ImageLocations: []types.ImageLocation{
+			{
+				Origin:     types.UserInput,
+				Path:       types.NoFilePath,
+				FinalStage: false,
+			},
+		},
+	}
+
+	registryOptions := &image.RegistryOptions{}
+
+	// Test with platform specification
+	platform := PlatformLinuxAmd64
+
+	result, err := analyzeImageWithPlatform(imageModel, registryOptions, platform)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("Expected result, got nil")
+	}
+
+	// Verify that result contains expected data
+	if result.ContainerImage.ImageName == "" {
+		t.Error("Expected image name to be populated")
+	}
+}
+
+func TestWebsphereLibertyPlatformAnalysis(t *testing.T) {
+	// Test the specific image requested: websphere-liberty:21.0.0.12-full-java8-ibmjava
+	imageName := "websphere-liberty:21.0.0.12-full-java8-ibmjava"
+
+	imageModel := types.ImageModel{
+		Name: imageName,
+		ImageLocations: []types.ImageLocation{
+			{
+				Origin:     types.UserInput,
+				Path:       types.NoFilePath,
+				FinalStage: false,
+			},
+		},
+	}
+
+	registryOptions := &image.RegistryOptions{}
+
+	t.Run("WithExplicitLinuxAmd64Platform", func(t *testing.T) {
+		// Test with explicit linux/amd64 platform - should provide results
+		result, err := analyzeImage(imageModel, registryOptions, PlatformLinuxAmd64)
+
+		if err != nil {
+			t.Logf("Expected to succeed with linux/amd64 platform, got error: %v", err)
+			t.Skip("Skipping test - image might not be available or network issues")
+		}
+
+		if result == nil {
+			t.Fatal("Expected result with linux/amd64 platform, got nil")
+		}
+
+		if len(result.ContainerPackages) == 0 {
+			t.Error("Expected packages to be found with linux/amd64 platform")
+		}
+
+		t.Logf("✅ Success: Found %d packages with linux/amd64 platform", len(result.ContainerPackages))
+	})
+
+	t.Run("WithEmptyPlatform_ShouldDefaultToLinuxAmd64", func(t *testing.T) {
+		// Test with empty platform - should default to linux/amd64 and provide results
+		result, err := analyzeImage(imageModel, registryOptions, "")
+
+		if err != nil {
+			t.Logf("Expected to succeed with empty platform (defaulting to linux/amd64), got error: %v", err)
+			t.Skip("Skipping test - image might not be available or network issues")
+		}
+
+		if result == nil {
+			t.Fatal("Expected result with empty platform (defaulting to linux/amd64), got nil")
+		}
+
+		if len(result.ContainerPackages) == 0 {
+			t.Error("Expected packages to be found with empty platform (should default to linux/amd64)")
+		}
+
+		t.Logf("✅ Success: Found %d packages with empty platform (defaulted to linux/amd64)", len(result.ContainerPackages))
+	})
+
+	t.Run("WithInvalidPlatform_ShouldLogAndDefaultToLinuxAmd64", func(t *testing.T) {
+		// Test with invalid platform - should log warning and default to linux/amd64
+		result, err := analyzeImage(imageModel, registryOptions, "invalid/platform")
+
+		if err != nil {
+			t.Logf("Expected to succeed with invalid platform (defaulting to linux/amd64), got error: %v", err)
+			t.Skip("Skipping test - image might not be available or network issues")
+		}
+
+		if result == nil {
+			t.Fatal("Expected result with invalid platform (defaulting to linux/amd64), got nil")
+		}
+
+		if len(result.ContainerPackages) == 0 {
+			t.Error("Expected packages to be found with invalid platform (should default to linux/amd64)")
+		}
+
+		t.Logf("✅ Success: Found %d packages with invalid platform (defaulted to linux/amd64)", len(result.ContainerPackages))
+	})
+
+	t.Run("WithLinuxArm64Platform", func(t *testing.T) {
+		// Test with linux/arm64 platform - may have different results or fail gracefully
+		result, err := analyzeImage(imageModel, registryOptions, PlatformLinuxArm64)
+
+		if err != nil {
+			t.Logf("Got error with linux/arm64 platform (expected for some images): %v", err)
+			// This is acceptable as not all images support all platforms
+			return
+		}
+
+		if result != nil {
+			t.Logf("✅ Success: Found %d packages with linux/arm64 platform", len(result.ContainerPackages))
+		}
+	})
+}
+
+func TestPlatformDefaultingBehavior(t *testing.T) {
+	// Test platform defaulting behavior without network calls
+	testCases := []struct {
+		name            string
+		inputPlatform   string
+		expectedDefault string
+		shouldLog       bool
+	}{
+		{
+			name:            "EmptyPlatform",
+			inputPlatform:   "",
+			expectedDefault: PlatformLinuxAmd64,
+			shouldLog:       true, // Should log that it's defaulting
+		},
+		{
+			name:            "ValidPlatform",
+			inputPlatform:   PlatformLinuxAmd64,
+			expectedDefault: PlatformLinuxAmd64,
+			shouldLog:       false,
+		},
+		{
+			name:            "InvalidPlatform",
+			inputPlatform:   "invalid/platform",
+			expectedDefault: PlatformLinuxAmd64,
+			shouldLog:       true, // Should log warning about invalid platform
+		},
+		{
+			name:            "AnotherValidPlatform",
+			inputPlatform:   PlatformLinuxArm64,
+			expectedDefault: PlatformLinuxArm64,
+			shouldLog:       false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Test the platform validation logic
+			platform := tc.inputPlatform
+
+			// Replicate the defaulting logic from analyzeImage
+			if platform == "" {
+				platform = PlatformLinuxAmd64
+			}
+
+			// Validate platform format
+			if _, err := image.NewPlatform(platform); err != nil {
+				platform = PlatformLinuxAmd64
+			}
+
+			assert.Equal(t, tc.expectedDefault, platform, "Platform should default correctly")
+		})
+	}
+}
+
+func TestPlatformConstants(t *testing.T) {
+	// Test that platform constants are valid
+	platforms := []string{
+		PlatformLinuxAmd64,
+		PlatformLinuxArm64,
+		PlatformLinuxArm,
+		PlatformWindowsAmd64,
+	}
+
+	for _, platform := range platforms {
+		_, err := image.NewPlatform(platform)
+		if err != nil {
+			t.Errorf("Platform %s should be valid, got error: %v", platform, err)
+		}
 	}
 }

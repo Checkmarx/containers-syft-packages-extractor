@@ -31,17 +31,83 @@ var specialExtractors = []string{
 	"cocoapodspkg",
 }
 
-func analyzeImage(imageModel types.ImageModel, registryOptions *image.RegistryOptions) (*ContainerResolution, error) {
+// Common platform specifications
+const (
+	PlatformLinuxAmd64   = "linux/amd64"
+	PlatformLinuxArm64   = "linux/arm64"
+	PlatformLinuxArm     = "linux/arm"
+	PlatformWindowsAmd64 = "windows/amd64"
+)
+
+// analyzeImageWithPlatform provides a convenience function for analyzing images with a specific platform.
+// This is useful when you need to analyze multi-architecture images for a specific platform.
+//
+// Example usage:
+//
+//	result, err := analyzeImageWithPlatform(imageModel, registryOptions, PlatformLinuxAmd64)
+//	if err != nil {
+//	    // handle error
+//	}
+//	// process result...
+func analyzeImageWithPlatform(imageModel types.ImageModel, registryOptions *image.RegistryOptions, platform string) (*ContainerResolution, error) {
+	return analyzeImage(imageModel, registryOptions, platform)
+}
+
+// analyzeImage analyzes a container image using syft and stereoscope libraries.
+// If platform is empty, it defaults to linux/amd64.
+// Platform format should follow Docker convention (e.g., "linux/amd64", "linux/arm64").
+//
+// The platform parameter is particularly important when analyzing multi-architecture images,
+// as it ensures that the correct architecture-specific layers and packages are analyzed.
+//
+// Supported platform formats:
+// - "linux/amd64" - Linux x86-64
+// - "linux/arm64" - Linux ARM 64-bit
+// - "linux/arm" - Linux ARM 32-bit
+// - "windows/amd64" - Windows x86-64
+// - "amd64" - Architecture only (OS defaults to linux)
+// - "" - Defaults to linux/amd64
+func analyzeImage(imageModel types.ImageModel, registryOptions *image.RegistryOptions, platform string) (*ContainerResolution, error) {
 
 	log.Debug().Msgf("image is %s, found in file paths: %s", imageModel.Name, GetImageLocationsPathsString(imageModel))
 
-	img, err := stereoscope.GetImage(context.Background(), imageModel.Name, stereoscope.WithRegistryOptions(*registryOptions))
+	// Default to linux/amd64 if no platform is specified
+	if platform == "" {
+		platform = PlatformLinuxAmd64
+		log.Debug().Msgf("No platform specified, defaulting to %s", platform)
+	}
+
+	// Validate platform format
+	if _, err := image.NewPlatform(platform); err != nil {
+		log.Warn().Msgf("Invalid platform '%s' specified, defaulting to %s. Error: %v", platform, PlatformLinuxAmd64, err)
+		platform = PlatformLinuxAmd64
+	}
+
+	log.Debug().Msgf("Analyzing image %s with platform %s", imageModel.Name, platform)
+
+	// Build stereoscope options
+	stereoscopeOptions := []stereoscope.Option{
+		stereoscope.WithRegistryOptions(*registryOptions),
+		stereoscope.WithPlatform(platform),
+	}
+
+	img, err := stereoscope.GetImage(context.Background(), imageModel.Name, stereoscopeOptions...)
 	if err != nil {
 		return nil, err
 	}
 	defer img.Cleanup()
 
-	src, err := syft.GetSource(context.Background(), imageModel.Name, syft.DefaultGetSourceConfig().WithRegistryOptions(registryOptions))
+	// Build syft source configuration
+	sourceConfig := syft.DefaultGetSourceConfig().WithRegistryOptions(registryOptions)
+
+	// Add platform to syft configuration
+	platformObj, err := image.NewPlatform(platform)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create platform object: %w", err)
+	}
+	sourceConfig = sourceConfig.WithPlatform(platformObj)
+
+	src, err := syft.GetSource(context.Background(), imageModel.Name, sourceConfig)
 	if err != nil {
 		log.Err(err).Msgf("Could not create image source object.")
 		return nil, err
