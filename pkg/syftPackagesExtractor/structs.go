@@ -17,6 +17,7 @@ type RootfsConfig struct {
 type ContainerResolution struct {
 	ContainerImage    ContainerImage
 	ContainerPackages []ContainerPackage
+	CycloneDxSBOM     string `json:"cycloneDxSBOM,omitempty"` // Zipped, base64 encoded CycloneDX SBOM
 }
 
 type ContainerImage struct {
