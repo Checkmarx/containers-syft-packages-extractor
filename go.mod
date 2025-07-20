@@ -3,7 +3,7 @@ module github.com/Checkmarx/containers-syft-packages-extractor
 go 1.24.1
 
 require (
-	github.com/Checkmarx/containers-types v1.0.3
+	github.com/Checkmarx/containers-types v1.0.8
 	github.com/anchore/go-collections v0.0.0-20241211140901-567f400e9a46
 	github.com/anchore/stereoscope v0.1.0
 	github.com/anchore/syft v1.21.0
