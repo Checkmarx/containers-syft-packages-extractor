@@ -1,12 +1,14 @@
 package syftPackagesExtractor
 
 import (
+	"os"
+	"strings"
+
 	"github.com/Checkmarx/containers-types/types"
 	"github.com/anchore/stereoscope"
 	"github.com/anchore/stereoscope/pkg/image"
 	"github.com/rs/zerolog/log"
-	"os"
-	"strings"
+	_ "modernc.org/sqlite"
 )
 
 type SyftPackagesExtractor interface {
