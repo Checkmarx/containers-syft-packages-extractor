@@ -8,6 +8,7 @@ import (
 	"github.com/anchore/stereoscope"
 	"github.com/anchore/stereoscope/pkg/image"
 	"github.com/rs/zerolog/log"
+	_ "modernc.org/sqlite"
 )
 
 type SyftPackagesExtractor interface {
