@@ -1,6 +1,8 @@
 package syftPackagesExtractor
 
 import (
+	"archive/tar"
+	"os"
 	"strings"
 	"testing"
 
@@ -908,14 +910,14 @@ func TestExtractImageWithTarFile(t *testing.T) {
 		{
 			name:         "Docker saved tar file",
 			imageName:    "juice-shop.tar",
-			expectedName: "juice-shop.tar",
-			expectedTag:  "unavailable",
+			expectedName: "juice-shop", // Fallback: filename without .tar extension
+			expectedTag:  "latest",     // Fallback: default tag
 		},
 		{
 			name:         "Docker saved tar file with uppercase extension",
 			imageName:    "alpine.TAR",
-			expectedName: "alpine.TAR",
-			expectedTag:  "unavailable",
+			expectedName: "alpine", // Fallback: filename without .TAR extension
+			expectedTag:  "latest", // Fallback: default tag
 		},
 		{
 			name:         "Compressed tar.gz file",
@@ -966,20 +968,22 @@ func TestExtractImageWithTarFile(t *testing.T) {
 			// Test the same logic as the updated transformSBOMToContainerResolution function
 			imageName := test.imageName
 			imageTag := "latest" // default tag
-
+			
 			// Check for tar file extensions
 			if strings.HasSuffix(strings.ToLower(imageName), ".tar") {
-				// This is a .tar file from docker save - imageName is the full filename, tag is unavailable
-				imageTag = "unavailable"
-			} else if strings.HasSuffix(strings.ToLower(imageName), ".tar.gz") ||
-				strings.HasSuffix(strings.ToLower(imageName), ".tar.bz2") ||
-				strings.HasSuffix(strings.ToLower(imageName), ".tar.xz") {
+				// This is a .tar file from docker save - try to extract from manifest, fallback to filename
+				// For testing purposes, we simulate the fallback behavior since we don't have actual tar files
+				imageName = strings.TrimSuffix(strings.TrimSuffix(imageName, ".tar"), ".TAR")
+				imageTag = "latest"
+			} else if strings.HasSuffix(strings.ToLower(imageName), ".tar.gz") || 
+					  strings.HasSuffix(strings.ToLower(imageName), ".tar.bz2") || 
+					  strings.HasSuffix(strings.ToLower(imageName), ".tar.xz") {
 				// This is a compressed tar file - not supported
 				imageTag = "unavailable"
 			} else {
 				// Regular image name with potential tag - use the same logic as splitToImageAndTag in ast-cli
 				lastColonIndex := strings.LastIndex(imageName, ":")
-
+				
 				if lastColonIndex == len(imageName)-1 || lastColonIndex == -1 {
 					// No tag specified, default to "latest"
 					imageTag = "latest"
@@ -998,6 +1002,102 @@ func TestExtractImageWithTarFile(t *testing.T) {
 				_ = imageName
 				_ = imageTag
 			})
+		})
+	}
+}
+
+func TestExtractImageNameAndTagFromTar(t *testing.T) {
+	// Test the extractImageNameAndTagFromTar function
+	tests := []struct {
+		name           string
+		manifestJSON   string
+		expectedName   string
+		expectedTag    string
+		expectError    bool
+	}{
+		{
+			name: "Valid manifest with image and tag",
+			manifestJSON: `[{
+				"RepoTags": ["nginx:1.21"]
+			}]`,
+			expectedName: "nginx",
+			expectedTag:  "1.21",
+			expectError:  false,
+		},
+		{
+			name: "Valid manifest with image without tag",
+			manifestJSON: `[{
+				"RepoTags": ["alpine"]
+			}]`,
+			expectedName: "alpine",
+			expectedTag:  "latest",
+			expectError:  false,
+		},
+		{
+			name: "Valid manifest with registry path",
+			manifestJSON: `[{
+				"RepoTags": ["registry.example.com:5000/namespace/image:tag"]
+			}]`,
+			expectedName: "registry.example.com:5000/namespace/image",
+			expectedTag:  "tag",
+			expectError:  false,
+		},
+		{
+			name: "Empty RepoTags",
+			manifestJSON: `[{
+				"RepoTags": []
+			}]`,
+			expectedName: "",
+			expectedTag:  "",
+			expectError:  true,
+		},
+		{
+			name: "Invalid JSON",
+			manifestJSON: `invalid json`,
+			expectedName: "",
+			expectedTag:  "",
+			expectError:  true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Create a temporary tar file with the test manifest
+			tmpFile, err := os.CreateTemp("", "test-*.tar")
+			if err != nil {
+				t.Fatalf("Failed to create temp file: %v", err)
+			}
+			defer os.Remove(tmpFile.Name())
+			defer tmpFile.Close()
+
+			// Create a tar writer
+			tarWriter := tar.NewWriter(tmpFile)
+			
+			// Add manifest.json to the tar
+			manifestHeader := &tar.Header{
+				Name: "manifest.json",
+				Size: int64(len(test.manifestJSON)),
+				Mode: 0644,
+			}
+			if err := tarWriter.WriteHeader(manifestHeader); err != nil {
+				t.Fatalf("Failed to write tar header: %v", err)
+			}
+			if _, err := tarWriter.Write([]byte(test.manifestJSON)); err != nil {
+				t.Fatalf("Failed to write manifest data: %v", err)
+			}
+			tarWriter.Close()
+			tmpFile.Close()
+
+			// Test the extraction function
+			imageName, imageTag, err := extractImageNameAndTagFromTar(tmpFile.Name())
+
+			if test.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, test.expectedName, imageName)
+				assert.Equal(t, test.expectedTag, imageTag)
+			}
 		})
 	}
 }
