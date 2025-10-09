@@ -43,7 +43,7 @@ const (
 // analyzeImageWithPlatform provides a convenience function for analyzing images with a specific platform.
 // This is useful when you need to analyze multi-architecture images for a specific platform.
 //
-// Example usage:
+// Example usage: 
 //
 //	result, err := analyzeImageWithPlatform(imageModel, registryOptions, PlatformLinuxAmd64)
 //	if err != nil {
