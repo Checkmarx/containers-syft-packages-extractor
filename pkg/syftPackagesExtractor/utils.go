@@ -56,7 +56,7 @@ func analyzeImageWithPlatform(imageModel types.ImageModel, registryOptions *imag
 
 // analyzeImage analyzes a container image using syft and stereoscope libraries.
 // If the platform is empty, it defaults to linux/amd64.
-// Platform format should follow Docker convention (e.g., "linux/amd64", "linux/arm64").
+// The platform format should follow Docker convention (e.g., "linux/amd64", "linux/arm64").
 //
 // The platform parameter is particularly important when analyzing multi-architecture images,
 // as it ensures that the correct architecture-specific layers and packages are analyzed.
