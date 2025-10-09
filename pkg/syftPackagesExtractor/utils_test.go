@@ -3,7 +3,6 @@ package syftPackagesExtractor
 import (
 	"archive/tar"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/Checkmarx/containers-types/types"
@@ -899,109 +898,130 @@ func TestPlatformConstants(t *testing.T) {
 	}
 }
 
-func TestExtractImageWithTarFile(t *testing.T) {
-	// Test the fix for AST-112118: tar files without colons should not panic
+func TestCreateEmptyContainerResolution(t *testing.T) {
+	// Test the createEmptyContainerResolution helper function
+	result := createEmptyContainerResolution()
+
+	// Verify it returns an empty ContainerResolution
+	assert.Equal(t, ContainerImage{}, result.ContainerImage)
+	assert.Empty(t, result.ContainerPackages)
+	assert.Len(t, result.ContainerPackages, 0)
+}
+
+func TestIsCompressedTarFile(t *testing.T) {
 	tests := []struct {
-		name         string
-		imageName    string
-		expectedName string
-		expectedTag  string
+		name     string
+		filename string
+		expected bool
 	}{
 		{
-			name:         "Docker saved tar file",
-			imageName:    "juice-shop.tar",
-			expectedName: "juice-shop", // Fallback: filename without .tar extension
-			expectedTag:  "latest",     // Fallback: default tag
+			name:     "Regular tar file",
+			filename: "image.tar",
+			expected: false,
 		},
 		{
-			name:         "Docker saved tar file with uppercase extension",
-			imageName:    "alpine.TAR",
-			expectedName: "alpine", // Fallback: filename without .TAR extension
-			expectedTag:  "latest", // Fallback: default tag
+			name:     "Compressed tar.gz file",
+			filename: "image.tar.gz",
+			expected: true,
 		},
 		{
-			name:         "Compressed tar.gz file",
-			imageName:    "nginx.tar.gz",
-			expectedName: "nginx.tar.gz",
-			expectedTag:  "unavailable",
+			name:     "Compressed tar.bz2 file",
+			filename: "image.tar.bz2",
+			expected: true,
 		},
 		{
-			name:         "Compressed tar.bz2 file",
-			imageName:    "ubuntu.tar.bz2",
-			expectedName: "ubuntu.tar.bz2",
-			expectedTag:  "unavailable",
+			name:     "Compressed tar.xz file",
+			filename: "image.tar.xz",
+			expected: true,
 		},
 		{
-			name:         "Compressed tar.xz file",
-			imageName:    "centos.tar.xz",
-			expectedName: "centos.tar.xz",
-			expectedTag:  "unavailable",
+			name:     "Uppercase tar.gz file",
+			filename: "image.TAR.GZ",
+			expected: true,
 		},
 		{
-			name:         "Image with tag",
-			imageName:    "nginx:1.21",
-			expectedName: "nginx",
-			expectedTag:  "1.21",
+			name:     "Regular file",
+			filename: "image.txt",
+			expected: false,
 		},
 		{
-			name:         "Image with latest tag",
-			imageName:    "alpine:latest",
-			expectedName: "alpine",
-			expectedTag:  "latest",
-		},
-		{
-			name:         "Image without tag",
-			imageName:    "ubuntu",
-			expectedName: "ubuntu",
-			expectedTag:  "latest",
-		},
-		{
-			name:         "Image with multiple colons",
-			imageName:    "registry.example.com:5000/namespace/image:tag",
-			expectedName: "registry.example.com:5000/namespace/image",
-			expectedTag:  "tag",
+			name:     "Empty filename",
+			filename: "",
+			expected: false,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			// Test the same logic as the updated transformSBOMToContainerResolution function
-			imageName := test.imageName
-			imageTag := "latest" // default tag
-			
-			// Check for tar file extensions
-			if strings.HasSuffix(strings.ToLower(imageName), ".tar") {
-				// This is a .tar file from docker save - try to extract from manifest, fallback to filename
-				// For testing purposes, we simulate the fallback behavior since we don't have actual tar files
-				imageName = strings.TrimSuffix(strings.TrimSuffix(imageName, ".tar"), ".TAR")
-				imageTag = "latest"
-			} else if strings.HasSuffix(strings.ToLower(imageName), ".tar.gz") || 
-					  strings.HasSuffix(strings.ToLower(imageName), ".tar.bz2") || 
-					  strings.HasSuffix(strings.ToLower(imageName), ".tar.xz") {
-				// This is a compressed tar file - not supported
-				imageTag = "unavailable"
-			} else {
-				// Regular image name with potential tag - use the same logic as splitToImageAndTag in ast-cli
-				lastColonIndex := strings.LastIndex(imageName, ":")
-				
-				if lastColonIndex == len(imageName)-1 || lastColonIndex == -1 {
-					// No tag specified, default to "latest"
-					imageTag = "latest"
-				} else {
-					imageTag = imageName[lastColonIndex+1:]
-					imageName = imageName[:lastColonIndex]
-				}
-			}
+			result := isCompressedTarFile(test.filename)
+			assert.Equal(t, test.expected, result)
+		})
+	}
+}
 
-			// Verify the fix works
+func TestParseImageNameAndTag(t *testing.T) {
+	tests := []struct {
+		name         string
+		imageString  string
+		expectedName string
+		expectedTag  string
+		expectError  bool
+	}{
+		{
+			name:         "Image with tag",
+			imageString:  "nginx:1.21",
+			expectedName: "nginx",
+			expectedTag:  "1.21",
+			expectError:  false,
+		},
+		{
+			name:         "Image with latest tag",
+			imageString:  "alpine:latest",
+			expectedName: "alpine",
+			expectedTag:  "latest",
+			expectError:  false,
+		},
+		{
+			name:         "Image without tag",
+			imageString:  "ubuntu",
+			expectedName: "",
+			expectedTag:  "",
+			expectError:  true,
+		},
+		{
+			name:         "Image with multiple colons",
+			imageString:  "registry.example.com:5000/namespace/image:tag",
+			expectedName: "registry.example.com:5000/namespace/image",
+			expectedTag:  "tag",
+			expectError:  false,
+		},
+		{
+			name:         "Image with colon at end",
+			imageString:  "nginx:",
+			expectedName: "",
+			expectedTag:  "",
+			expectError:  true,
+		},
+		{
+			name:         "Empty string",
+			imageString:  "",
+			expectedName: "",
+			expectedTag:  "",
+			expectError:  true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			imageName, imageTag, err := parseImageNameAndTag(test.imageString)
+
+			if test.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
 			assert.Equal(t, test.expectedName, imageName)
 			assert.Equal(t, test.expectedTag, imageTag)
-
-			// Verify no panic occurs when processing the image name
-			assert.NotPanics(t, func() {
-				_ = imageName
-				_ = imageTag
-			})
 		})
 	}
 }
@@ -1009,11 +1029,11 @@ func TestExtractImageWithTarFile(t *testing.T) {
 func TestExtractImageNameAndTagFromTar(t *testing.T) {
 	// Test the extractImageNameAndTagFromTar function
 	tests := []struct {
-		name           string
-		manifestJSON   string
-		expectedName   string
-		expectedTag    string
-		expectError    bool
+		name         string
+		manifestJSON string
+		expectedName string
+		expectedTag  string
+		expectError  bool
 	}{
 		{
 			name: "Valid manifest with image and tag",
@@ -1029,9 +1049,9 @@ func TestExtractImageNameAndTagFromTar(t *testing.T) {
 			manifestJSON: `[{
 				"RepoTags": ["alpine"]
 			}]`,
-			expectedName: "alpine",
-			expectedTag:  "latest",
-			expectError:  false,
+			expectedName: "",
+			expectedTag:  "",
+			expectError:  true, // Now returns error for images without tags
 		},
 		{
 			name: "Valid manifest with registry path",
@@ -1052,7 +1072,7 @@ func TestExtractImageNameAndTagFromTar(t *testing.T) {
 			expectError:  true,
 		},
 		{
-			name: "Invalid JSON",
+			name:         "Invalid JSON",
 			manifestJSON: `invalid json`,
 			expectedName: "",
 			expectedTag:  "",
@@ -1072,7 +1092,7 @@ func TestExtractImageNameAndTagFromTar(t *testing.T) {
 
 			// Create a tar writer
 			tarWriter := tar.NewWriter(tmpFile)
-			
+
 			// Add manifest.json to the tar
 			manifestHeader := &tar.Header{
 				Name: "manifest.json",
