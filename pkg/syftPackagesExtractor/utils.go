@@ -188,7 +188,33 @@ func generateCycloneDxSBOM(s sbom.SBOM) (string, error) {
 
 func transformSBOMToContainerResolution(s sbom.SBOM, imageModel types.ImageModel) ContainerResolution {
 
-	imageNameAndTag := strings.Split(imageModel.Name, ":")
+	// Check if this is a tar file from docker save
+	imageName := imageModel.Name
+	imageTag := "latest" // default tag
+
+	// Check for tar file extensions
+	if strings.HasSuffix(strings.ToLower(imageName), ".tar") {
+		// This is a .tar file from docker save - imageName is the full filename, tag is unavailable
+		imageTag = "unavailable"
+		log.Info().Msgf("Processing Docker saved tar file: %s (tag unavailable for tar files)", imageName)
+	} else if strings.HasSuffix(strings.ToLower(imageName), ".tar.gz") ||
+		strings.HasSuffix(strings.ToLower(imageName), ".tar.bz2") ||
+		strings.HasSuffix(strings.ToLower(imageName), ".tar.xz") {
+		// This is a compressed tar file - not supported
+		log.Warn().Msgf("Compressed tar file detected: %s. Syft only supports uncompressed .tar files. Please use 'docker save' without compression or extract the file first.", imageName)
+		imageTag = "unavailable"
+	} else {
+		// Regular image name with potential tag - use the same logic as splitToImageAndTag in ast-cli
+		lastColonIndex := strings.LastIndex(imageName, ":")
+
+		if lastColonIndex == len(imageName)-1 || lastColonIndex == -1 {
+			// No tag specified, default to "latest"
+			imageTag = "latest"
+		} else {
+			imageTag = imageName[lastColonIndex+1:]
+			imageName = imageName[:lastColonIndex]
+		}
+	}
 
 	imageResult := ContainerResolution{
 		ContainerImage:    ContainerImage{},
@@ -204,20 +230,20 @@ func transformSBOMToContainerResolution(s sbom.SBOM, imageModel types.ImageModel
 
 	distro := getDistro(s.Artifacts.LinuxDistribution)
 
-	extractImage(distro, imageModel, sourceMetadata, imageNameAndTag, &imageResult)
+	extractImage(distro, imageModel, sourceMetadata, imageName, imageTag, &imageResult)
 	extractImagePackages(s.Artifacts.Packages, distro, &imageResult)
 
 	return imageResult
 }
 
-func extractImage(distro string, imageModel types.ImageModel, sourceMetadata source.ImageMetadata, imageNameAndTag []string, result *ContainerResolution) {
+func extractImage(distro string, imageModel types.ImageModel, sourceMetadata source.ImageMetadata, imageName, imageTag string, result *ContainerResolution) {
 
 	history := extractHistory(sourceMetadata)
 	layerIds := extractLayerIds(history)
 
 	result.ContainerImage = ContainerImage{
-		ImageName:      imageNameAndTag[0],
-		ImageTag:       imageNameAndTag[1],
+		ImageName:      imageName,
+		ImageTag:       imageTag,
 		Distribution:   distro,
 		ImageHash:      sourceMetadata.ID,
 		ImageId:        imageModel.Name,
