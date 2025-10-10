@@ -1,6 +1,8 @@
 package syftPackagesExtractor
 
 import (
+	"archive/tar"
+	"os"
 	"testing"
 
 	"github.com/Checkmarx/containers-types/types"
@@ -893,5 +895,229 @@ func TestPlatformConstants(t *testing.T) {
 		if err != nil {
 			t.Errorf("Platform %s should be valid, got error: %v", platform, err)
 		}
+	}
+}
+
+func TestCreateEmptyContainerResolution(t *testing.T) {
+	// Test the createEmptyContainerResolution helper function
+	result := createEmptyContainerResolution()
+
+	// Verify it returns an empty ContainerResolution
+	assert.Equal(t, ContainerImage{}, result.ContainerImage)
+	assert.Empty(t, result.ContainerPackages)
+	assert.Len(t, result.ContainerPackages, 0)
+}
+
+func TestIsCompressedTarFile(t *testing.T) {
+	tests := []struct {
+		name     string
+		filename string
+		expected bool
+	}{
+		{
+			name:     "Regular tar file",
+			filename: "image.tar",
+			expected: false,
+		},
+		{
+			name:     "Compressed tar.gz file",
+			filename: "image.tar.gz",
+			expected: true,
+		},
+		{
+			name:     "Compressed tar.bz2 file",
+			filename: "image.tar.bz2",
+			expected: true,
+		},
+		{
+			name:     "Compressed tar.xz file",
+			filename: "image.tar.xz",
+			expected: true,
+		},
+		{
+			name:     "Uppercase tar.gz file",
+			filename: "image.TAR.GZ",
+			expected: true,
+		},
+		{
+			name:     "Regular file",
+			filename: "image.txt",
+			expected: false,
+		},
+		{
+			name:     "Empty filename",
+			filename: "",
+			expected: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := isCompressedTarFile(test.filename)
+			assert.Equal(t, test.expected, result)
+		})
+	}
+}
+
+func TestParseImageNameAndTag(t *testing.T) {
+	tests := []struct {
+		name         string
+		imageString  string
+		expectedName string
+		expectedTag  string
+		expectError  bool
+	}{
+		{
+			name:         "Image with tag",
+			imageString:  "nginx:1.21",
+			expectedName: "nginx",
+			expectedTag:  "1.21",
+			expectError:  false,
+		},
+		{
+			name:         "Image with latest tag",
+			imageString:  "alpine:latest",
+			expectedName: "alpine",
+			expectedTag:  "latest",
+			expectError:  false,
+		},
+		{
+			name:         "Image without tag",
+			imageString:  "ubuntu",
+			expectedName: "",
+			expectedTag:  "",
+			expectError:  true,
+		},
+		{
+			name:         "Image with multiple colons",
+			imageString:  "registry.example.com:5000/namespace/image:tag",
+			expectedName: "registry.example.com:5000/namespace/image",
+			expectedTag:  "tag",
+			expectError:  false,
+		},
+		{
+			name:         "Image with colon at end",
+			imageString:  "nginx:",
+			expectedName: "",
+			expectedTag:  "",
+			expectError:  true,
+		},
+		{
+			name:         "Empty string",
+			imageString:  "",
+			expectedName: "",
+			expectedTag:  "",
+			expectError:  true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			imageName, imageTag, err := parseImageNameAndTag(test.imageString)
+
+			if test.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Equal(t, test.expectedName, imageName)
+			assert.Equal(t, test.expectedTag, imageTag)
+		})
+	}
+}
+
+func TestExtractImageNameAndTagFromTar(t *testing.T) {
+	// Test the extractImageNameAndTagFromTar function
+	tests := []struct {
+		name         string
+		manifestJSON string
+		expectedName string
+		expectedTag  string
+		expectError  bool
+	}{
+		{
+			name: "Valid manifest with image and tag",
+			manifestJSON: `[{
+				"RepoTags": ["nginx:1.21"]
+			}]`,
+			expectedName: "nginx",
+			expectedTag:  "1.21",
+			expectError:  false,
+		},
+		{
+			name: "Valid manifest with image without tag",
+			manifestJSON: `[{
+				"RepoTags": ["alpine"]
+			}]`,
+			expectedName: "",
+			expectedTag:  "",
+			expectError:  true, // Now returns error for images without tags
+		},
+		{
+			name: "Valid manifest with registry path",
+			manifestJSON: `[{
+				"RepoTags": ["registry.example.com:5000/namespace/image:tag"]
+			}]`,
+			expectedName: "registry.example.com:5000/namespace/image",
+			expectedTag:  "tag",
+			expectError:  false,
+		},
+		{
+			name: "Empty RepoTags",
+			manifestJSON: `[{
+				"RepoTags": []
+			}]`,
+			expectedName: "",
+			expectedTag:  "",
+			expectError:  true,
+		},
+		{
+			name:         "Invalid JSON",
+			manifestJSON: `invalid json`,
+			expectedName: "",
+			expectedTag:  "",
+			expectError:  true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Create a temporary tar file with the test manifest
+			tmpFile, err := os.CreateTemp("", "test-*.tar")
+			if err != nil {
+				t.Fatalf("Failed to create temp file: %v", err)
+			}
+			defer os.Remove(tmpFile.Name())
+			defer tmpFile.Close()
+
+			// Create a tar writer
+			tarWriter := tar.NewWriter(tmpFile)
+
+			// Add manifest.json to the tar
+			manifestHeader := &tar.Header{
+				Name: "manifest.json",
+				Size: int64(len(test.manifestJSON)),
+				Mode: 0644,
+			}
+			if err := tarWriter.WriteHeader(manifestHeader); err != nil {
+				t.Fatalf("Failed to write tar header: %v", err)
+			}
+			if _, err := tarWriter.Write([]byte(test.manifestJSON)); err != nil {
+				t.Fatalf("Failed to write manifest data: %v", err)
+			}
+			tarWriter.Close()
+			tmpFile.Close()
+
+			// Test the extraction function
+			imageName, imageTag, err := extractImageNameAndTagFromTar(tmpFile.Name())
+
+			if test.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, test.expectedName, imageName)
+				assert.Equal(t, test.expectedTag, imageTag)
+			}
+		})
 	}
 }

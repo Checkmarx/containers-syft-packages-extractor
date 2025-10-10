@@ -1,14 +1,16 @@
 package syftPackagesExtractor
 
 import (
+	"archive/tar"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"regexp"
 	"strings"
 
 	"github.com/Checkmarx/containers-types/types"
-	"github.com/anchore/go-collections"
 	"github.com/anchore/stereoscope"
 	"github.com/anchore/stereoscope/pkg/image"
 	"github.com/anchore/syft/syft"
@@ -19,7 +21,6 @@ import (
 	"github.com/anchore/syft/syft/pkg"
 	"github.com/anchore/syft/syft/sbom"
 	"github.com/anchore/syft/syft/source"
-	"github.com/anchore/syft/syft/source/sourceproviders"
 	"github.com/rs/zerolog/log"
 )
 
@@ -42,7 +43,7 @@ const (
 // analyzeImageWithPlatform provides a convenience function for analyzing images with a specific platform.
 // This is useful when you need to analyze multi-architecture images for a specific platform.
 //
-// Example usage:
+// Example usage: 
 //
 //	result, err := analyzeImageWithPlatform(imageModel, registryOptions, PlatformLinuxAmd64)
 //	if err != nil {
@@ -54,8 +55,8 @@ func analyzeImageWithPlatform(imageModel types.ImageModel, registryOptions *imag
 }
 
 // analyzeImage analyzes a container image using syft and stereoscope libraries.
-// If platform is empty, it defaults to linux/amd64.
-// Platform format should follow Docker convention (e.g., "linux/amd64", "linux/arm64").
+// If the platform is empty, it defaults to linux/amd64.
+// The platform format should follow Docker convention (e.g., "linux/amd64", "linux/arm64").
 //
 // The platform parameter is particularly important when analyzing multi-architecture images,
 // as it ensures that the correct architecture-specific layers and packages are analyzed.
@@ -148,16 +149,11 @@ func configureRegistryOptions() (*image.RegistryOptions, error) {
 	}
 
 	// Populate RegistryOptions
-	registryOptions := &image.RegistryOptions{}
-	for _, cred := range credentials {
-		registryOptions.Credentials = append(registryOptions.Credentials, cred)
+	registryOptions := &image.RegistryOptions{
+		Credentials: credentials,
 	}
 
 	return registryOptions, nil
-}
-
-func allSourceTags() []string {
-	return collections.TaggedValueSet[source.Provider]{}.Join(sourceproviders.All("", nil)...).Tags()
 }
 
 func getSBOM(src source.Source, saveToFile bool) (sbom.SBOM, error) {
@@ -186,9 +182,127 @@ func generateCycloneDxSBOM(s sbom.SBOM) (string, error) {
 	return tryGenerateCycloneDxSBOM(s)
 }
 
-func transformSBOMToContainerResolution(s sbom.SBOM, imageModel types.ImageModel) ContainerResolution {
+// DockerManifest represents the structure of manifest.json in Docker tar files
+type DockerManifest struct {
+	RepoTags []string `json:"RepoTags"`
+}
 
-	imageNameAndTag := strings.Split(imageModel.Name, ":")
+// extractImageNameAndTagFromTar extracts the actual image name and tag from a Docker saved tar file
+// by reading the manifest.json file inside the tar archive
+func extractImageNameAndTagFromTar(tarFilePath string) (string, string, error) {
+	file, err := os.Open(tarFilePath)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to open tar file %s: %w. Make sure the file exists and is accessible", tarFilePath, err)
+	}
+	defer file.Close()
+
+	tarReader := tar.NewReader(file)
+
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", "", fmt.Errorf("failed to read tar file: %w. Make sure this is a valid tar file was created with 'save' command (like: 'docker save' or 'podman save')", err)
+		}
+
+		// Look for manifest.json file
+		if header.Name == "manifest.json" {
+			manifestData, err := io.ReadAll(tarReader)
+			if err != nil {
+				return "", "", fmt.Errorf("failed to read manifest.json: %w. The tar file may be corrupted", err)
+			}
+
+			var manifests []DockerManifest
+			if err := json.Unmarshal(manifestData, &manifests); err != nil {
+				return "", "", fmt.Errorf("failed to parse manifest.json: %w. Make sure this tar file was created with 'save' command (like: 'docker save' or 'podman save')", err)
+			}
+
+			// Extract the first repo tag (there should typically be only one)
+			if len(manifests) > 0 && len(manifests[0].RepoTags) > 0 {
+				repoTag := manifests[0].RepoTags[0]
+
+				// Split the repo:tag format
+				lastColonIndex := strings.LastIndex(repoTag, ":")
+				if lastColonIndex == -1 {
+					// No tag specified in manifest - this is an error case
+					return "", "", fmt.Errorf("no tag found in manifest RepoTags: %s. Make sure the image was saved with a tag using 'docker save <image:tag>' or 'podman save <image:tag>'", repoTag)
+				}
+
+				imageName := repoTag[:lastColonIndex]
+				imageTag := repoTag[lastColonIndex+1:]
+				return imageName, imageTag, nil
+			}
+		}
+	}
+
+	return "", "", fmt.Errorf("manifest.json not found in tar file or no RepoTags found. Make sure this tar file was created with 'save' command (like: 'docker save' or 'podman save')")
+}
+
+// createEmptyContainerResolution returns an empty ContainerResolution
+func createEmptyContainerResolution() ContainerResolution {
+	return ContainerResolution{
+		ContainerImage:    ContainerImage{},
+		ContainerPackages: []ContainerPackage{},
+	}
+}
+
+// isCompressedTarFile checks if the filename has a compressed tar extension
+func isCompressedTarFile(filename string) bool {
+	lowerFilename := strings.ToLower(filename)
+	return strings.HasSuffix(lowerFilename, ".tar.gz") ||
+		strings.HasSuffix(lowerFilename, ".tar.bz2") ||
+		strings.HasSuffix(lowerFilename, ".tar.xz")
+}
+
+// parseImageNameAndTag parses an image name and tag from a string, returns empty strings if no tag found
+func parseImageNameAndTag(imageString string) (string, string, error) {
+	lastColonIndex := strings.LastIndex(imageString, ":")
+
+	if lastColonIndex == len(imageString)-1 || lastColonIndex == -1 {
+		// No tag specified
+		return "", "", fmt.Errorf("no tag specified in image name: %s", imageString)
+	}
+
+	imageName := imageString[:lastColonIndex]
+	imageTag := imageString[lastColonIndex+1:]
+	return imageName, imageTag, nil
+}
+
+func transformSBOMToContainerResolution(s sbom.SBOM, imageModel types.ImageModel) ContainerResolution {
+	imageName := imageModel.Name
+	var imageTag string
+
+	// Check for tar file extensions
+	if strings.HasSuffix(strings.ToLower(imageName), ".tar") {
+		// This is a .tar file from docker/podman save - extract the actual image name and tag from manifest
+		log.Info().Msgf("Processing image saved as a tar file: %s", imageName)
+
+		// Try to extract the actual image name and tag from the tar file manifest
+		actualImageName, actualImageTag, err := extractImageNameAndTagFromTar(imageName)
+		if err != nil {
+			log.Warn().Err(err).Msgf("Failed to extract image name and tag from tar file %s. Skipping analysis of this file.", imageName)
+			return createEmptyContainerResolution()
+		}
+
+		// Use the actual image name and tag from the manifest
+		imageName = actualImageName
+		imageTag = actualImageTag
+		log.Info().Msgf("Extracted image name: %s, tag: %s from tar file manifest", imageName, imageTag)
+	} else if isCompressedTarFile(imageName) {
+		// This is a compressed tar file - not supported by Syft
+		log.Warn().Msgf("Compressed tar file detected: %s. Only uncompressed .tar files are supported. Please use 'save' command (like: 'docker save' or 'podman save') without compression or extract the file first. Skipping analysis of this file.", imageName)
+		return createEmptyContainerResolution()
+	} else {
+		// Regular image name with potential tag
+		var err error
+		imageName, imageTag, err = parseImageNameAndTag(imageName)
+		if err != nil {
+			log.Warn().Err(err).Msgf("Skipping analysis of this image.")
+			return createEmptyContainerResolution()
+		}
+	}
 
 	imageResult := ContainerResolution{
 		ContainerImage:    ContainerImage{},
@@ -204,23 +318,26 @@ func transformSBOMToContainerResolution(s sbom.SBOM, imageModel types.ImageModel
 
 	distro := getDistro(s.Artifacts.LinuxDistribution)
 
-	extractImage(distro, imageModel, sourceMetadata, imageNameAndTag, &imageResult)
+	extractImage(distro, imageModel, sourceMetadata, imageName, imageTag, &imageResult)
 	extractImagePackages(s.Artifacts.Packages, distro, &imageResult)
 
 	return imageResult
 }
 
-func extractImage(distro string, imageModel types.ImageModel, sourceMetadata source.ImageMetadata, imageNameAndTag []string, result *ContainerResolution) {
+func extractImage(distro string, imageModel types.ImageModel, sourceMetadata source.ImageMetadata, imageName, imageTag string, result *ContainerResolution) {
 
 	history := extractHistory(sourceMetadata)
 	layerIds := extractLayerIds(history)
 
+	// Create a consistent ImageId that represents the full image identifier, for regular images and for tar files
+	imageId := fmt.Sprintf("%s:%s", imageName, imageTag)
+
 	result.ContainerImage = ContainerImage{
-		ImageName:      imageNameAndTag[0],
-		ImageTag:       imageNameAndTag[1],
+		ImageName:      imageName,
+		ImageTag:       imageTag,
 		Distribution:   distro,
 		ImageHash:      sourceMetadata.ID,
-		ImageId:        imageModel.Name,
+		ImageId:        imageId,
 		Layers:         layerIds,
 		History:        history,
 		ImageLocations: getImageLocations(imageModel.ImageLocations),
