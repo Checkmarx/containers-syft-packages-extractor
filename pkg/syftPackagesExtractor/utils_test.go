@@ -1121,3 +1121,167 @@ func TestExtractImageNameAndTagFromTar(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractImageNameAndTagFromOCIDir(t *testing.T) {
+	tests := []struct {
+		name         string
+		indexJSON    string
+		dirName      string
+		expectedName string
+		expectedTag  string
+		expectError  bool
+	}{
+		{
+			name: "Valid OCI dir with tag annotation",
+			indexJSON: `{
+				"schemaVersion": 2,
+				"manifests": [{
+					"mediaType": "application/vnd.oci.image.manifest.v1+json",
+					"digest": "sha256:abc123",
+					"size": 1024,
+					"annotations": {
+						"org.opencontainers.image.ref.name": "latest"
+					}
+				}]
+			}`,
+			dirName:      "alpine",
+			expectedName: "alpine",
+			expectedTag:  "latest",
+			expectError:  false,
+		},
+		{
+			name: "Multiple manifests - uses first manifest tag",
+			indexJSON: `{
+				"schemaVersion": 2,
+				"manifests": [
+					{
+						"annotations": {
+							"org.opencontainers.image.ref.name": "alpine"
+						}
+					},
+					{
+						"annotations": {
+							"org.opencontainers.image.ref.name": "latest"
+						}
+					}
+				]
+			}`,
+			dirName:      "alpine",
+			expectedName: "alpine",
+			expectedTag:  "alpine",
+			expectError:  false,
+		},
+		{
+			name: "OCI dir from nested path",
+			indexJSON: `{
+				"schemaVersion": 2,
+				"manifests": [{
+					"annotations": {
+						"org.opencontainers.image.ref.name": "v1.0"
+					}
+				}]
+			}`,
+			dirName:      "library/nginx",
+			expectedName: "nginx",
+			expectedTag:  "v1.0",
+			expectError:  false,
+		},
+		{
+			name: "Missing tag annotation",
+			indexJSON: `{
+				"schemaVersion": 2,
+				"manifests": [{
+					"mediaType": "application/vnd.oci.image.manifest.v1+json"
+				}]
+			}`,
+			dirName:      "alpine",
+			expectedName: "",
+			expectedTag:  "",
+			expectError:  true,
+		},
+		{
+			name: "Empty manifests",
+			indexJSON: `{
+				"schemaVersion": 2,
+				"manifests": []
+			}`,
+			dirName:      "alpine",
+			expectedName: "",
+			expectedTag:  "",
+			expectError:  true,
+		},
+		{
+			name:         "Invalid JSON",
+			indexJSON:    `invalid json`,
+			dirName:      "alpine",
+			expectedName: "",
+			expectedTag:  "",
+			expectError:  true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Create temporary OCI directory structure
+			tmpDir, err := os.MkdirTemp("", "oci-test-*")
+			if err != nil {
+				t.Fatalf("Failed to create temp dir: %v", err)
+			}
+			defer os.RemoveAll(tmpDir)
+
+			// Create nested directory if needed
+			ociDir := tmpDir
+			if test.dirName != "" {
+				ociDir = tmpDir + "/" + test.dirName
+				if err := os.MkdirAll(ociDir, 0755); err != nil {
+					t.Fatalf("Failed to create OCI dir: %v", err)
+				}
+			}
+
+			// Write index.json
+			indexPath := ociDir + "/index.json"
+			if err := os.WriteFile(indexPath, []byte(test.indexJSON), 0644); err != nil {
+				t.Fatalf("Failed to write index.json: %v", err)
+			}
+
+			// Test with oci-dir prefix
+			inputPath := "oci-dir:" + ociDir
+			imageName, imageTag, err := extractImageNameAndTagFromOCIDir(inputPath)
+
+			if test.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, test.expectedName, imageName)
+				assert.Equal(t, test.expectedTag, imageTag)
+			}
+		})
+	}
+}
+
+func TestIsTaggedImageFormat(t *testing.T) {
+	tests := []struct {
+		name     string
+		image    string
+		expected bool
+	}{
+		{"Standard image with tag", "nginx:latest", true},
+		{"Registry image with tag", "docker.io/library/alpine:3.18", true},
+		{"Docker daemon", "docker:nginx:latest", true},
+		{"Podman daemon", "podman:alpine:3.18", true},
+		{"Registry prefix", "registry:myregistry.io/app:v1.0", true},
+		{"OCI directory", "oci-dir:/path/to/image", false},
+		{"OCI archive", "oci-archive:image.tar", false},
+		{"Docker archive", "docker-archive:image.tar", false},
+		{"File prefix", "file:image.tar", false},
+		{"Tar file", "alpine.tar", false},
+		{"Image without tag", "alpine", false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := isTaggedImageFormat(test.image)
+			assert.Equal(t, test.expected, result)
+		})
+	}
+}

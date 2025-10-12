@@ -40,6 +40,62 @@ const (
 	PlatformWindowsAmd64 = "windows/amd64"
 )
 
+// Container image prefix constants
+const (
+	dockerPrefix        = "docker:"
+	podmanPrefix        = "podman:"
+	containerdPrefix    = "containerd:"
+	registryPrefix      = "registry:"
+	dockerArchivePrefix = "docker-archive:"
+	ociArchivePrefix    = "oci-archive:"
+	ociDirPrefix        = "oci-dir:"
+	filePrefix          = "file:"
+)
+
+// isTaggedImageFormat checks if the image name is in a format where platform information is relevant.
+// Returns true for daemon images (docker:, podman:, containerd:), registry images, or standard image:tag format.
+// Returns false for tar files and archive formats (docker-archive:, oci-archive:, file:, oci-dir:).
+func isTaggedImageFormat(imageName string) bool {
+	imageLower := strings.ToLower(imageName)
+	
+	// Archive formats - platform is not relevant for these
+	archivePrefixes := []string{
+		dockerArchivePrefix,
+		ociArchivePrefix,
+		filePrefix,
+		ociDirPrefix,
+	}
+	
+	for _, prefix := range archivePrefixes {
+		if strings.HasPrefix(imageLower, prefix) {
+			return false
+		}
+	}
+	
+	// Check if it's a tar file
+	if strings.HasSuffix(imageLower, ".tar") {
+		return false
+	}
+	
+	// Daemon and registry prefixes - platform is relevant
+	daemonPrefixes := []string{
+		dockerPrefix,
+		podmanPrefix,
+		containerdPrefix,
+		registryPrefix,
+	}
+	
+	for _, prefix := range daemonPrefixes {
+		if strings.HasPrefix(imageLower, prefix) {
+			return true
+		}
+	}
+	
+	// Standard image:tag format (has colon and is not a tar file)
+	// This handles cases like nginx:latest, alpine:3.18, registry.io/namespace/image:tag
+	return strings.Contains(imageName, ":")
+}
+
 // analyzeImageWithPlatform provides a convenience function for analyzing images with a specific platform.
 // This is useful when you need to analyze multi-architecture images for a specific platform.
 //
@@ -84,7 +140,26 @@ func analyzeImage(imageModel types.ImageModel, registryOptions *image.RegistryOp
 		platform = PlatformLinuxAmd64
 	}
 
-	log.Debug().Msgf("Analyzing image %s with platform %s", imageModel.Name, platform)
+	// Only log platform info for tagged images (not tar files or archives)
+	if isTaggedImageFormat(imageModel.Name) {
+		log.Debug().Msgf("Analyzing image %s with platform %s", imageModel.Name, platform)
+	} else {
+		log.Debug().Msgf("Analyzing image %s", imageModel.Name)
+	}
+
+	// Extract scheme source if present (e.g., "oci-dir:/path" -> source="oci-dir", cleanInput="/path")
+	// This is necessary because stereoscope providers expect paths without the scheme prefix
+	sourceHint, cleanImageName := stereoscope.ExtractSchemeSource(imageModel.Name, 
+		"docker", "podman", "containerd", "registry", 
+		"docker-archive", "oci-archive", "oci-dir", "file", "dir")
+	
+	// Use the clean image name (without scheme prefix) for stereoscope and syft
+	imageNameForAnalysis := cleanImageName
+	if imageNameForAnalysis == "" {
+		imageNameForAnalysis = imageModel.Name
+	}
+	
+	log.Debug().Msgf("Extracted source hint: '%s', clean image name: '%s'", sourceHint, imageNameForAnalysis)
 
 	// Build stereoscope options
 	stereoscopeOptions := []stereoscope.Option{
@@ -92,7 +167,7 @@ func analyzeImage(imageModel types.ImageModel, registryOptions *image.RegistryOp
 		stereoscope.WithPlatform(platform),
 	}
 
-	img, err := stereoscope.GetImage(context.Background(), imageModel.Name, stereoscopeOptions...)
+	img, err := stereoscope.GetImage(context.Background(), imageNameForAnalysis, stereoscopeOptions...)
 	if err != nil {
 		return nil, err
 	}
@@ -107,8 +182,13 @@ func analyzeImage(imageModel types.ImageModel, registryOptions *image.RegistryOp
 		return nil, fmt.Errorf("failed to create platform object: %w", err)
 	}
 	sourceConfig = sourceConfig.WithPlatform(platformObj)
+	
+	// If we have a source hint, configure syft to use that specific source
+	if sourceHint != "" {
+		sourceConfig = sourceConfig.WithSources(sourceHint)
+	}
 
-	src, err := syft.GetSource(context.Background(), imageModel.Name, sourceConfig)
+	src, err := syft.GetSource(context.Background(), imageNameForAnalysis, sourceConfig)
 	if err != nil {
 		log.Err(err).Msgf("Could not create image source object.")
 		return nil, err
@@ -121,6 +201,12 @@ func analyzeImage(imageModel types.ImageModel, registryOptions *image.RegistryOp
 	}
 
 	result := transformSBOMToContainerResolution(s, imageModel)
+	
+	// Skip images with no packages - nothing to analyze
+	if len(result.ContainerPackages) == 0 {
+		log.Warn().Msgf("Image %s has 0 packages, skipping from containers-resolution.json", imageModel.Name)
+		return nil, fmt.Errorf("image has 0 packages, skipping analysis")
+	}
 
 	// Generate CycloneDX SBOM
 	cycloneDxSBOM, err := generateCycloneDxSBOM(s)
@@ -190,9 +276,22 @@ type DockerManifest struct {
 // extractImageNameAndTagFromTar extracts the actual image name and tag from a Docker saved tar file
 // by reading the manifest.json file inside the tar archive
 func extractImageNameAndTagFromTar(tarFilePath string) (string, string, error) {
-	file, err := os.Open(tarFilePath)
+	// Strip any scheme prefix (e.g., "file:", "docker-archive:") from the path
+	cleanPath := tarFilePath
+	for _, prefix := range []string{filePrefix, dockerArchivePrefix, ociArchivePrefix} {
+		// Check case-insensitively, but strip using the actual length
+		if strings.HasPrefix(strings.ToLower(cleanPath), prefix) {
+			cleanPath = cleanPath[len(prefix):] // Skip the prefix length
+			break
+		}
+	}
+	cleanPath = strings.TrimSpace(cleanPath)
+	
+	log.Info().Msgf("Opening tar file: original='%s', clean='%s'", tarFilePath, cleanPath)
+	
+	file, err := os.Open(cleanPath)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to open tar file %s: %w. Make sure the file exists and is accessible", tarFilePath, err)
+		return "", "", fmt.Errorf("failed to open tar file %s: %w. Make sure the file exists and is accessible", cleanPath, err)
 	}
 	defer file.Close()
 
@@ -270,12 +369,80 @@ func parseImageNameAndTag(imageString string) (string, string, error) {
 	return imageName, imageTag, nil
 }
 
+// OCIIndexJSON represents the structure of an OCI index.json file
+type OCIIndexJSON struct {
+	Manifests []OCIManifest `json:"manifests"`
+}
+
+// OCIManifest represents a manifest entry in the OCI index
+type OCIManifest struct {
+	Annotations map[string]string `json:"annotations"`
+}
+
+// extractImageNameAndTagFromOCIDir extracts the image name and tag from an OCI directory structure.
+// The image name is derived from the folder name, and the tag is read from the index.json annotation.
+func extractImageNameAndTagFromOCIDir(ociDirPath string) (string, string, error) {
+	// Remove any leading "oci-dir:" prefix if present
+	cleanPath := strings.TrimPrefix(ociDirPath, ociDirPrefix)
+	cleanPath = strings.TrimSpace(cleanPath)
+	
+	// Extract the folder name as the image name
+	// For example: "docker.io/library/alpine" -> "alpine"
+	imageName := cleanPath
+	if strings.Contains(cleanPath, "/") {
+		parts := strings.Split(cleanPath, "/")
+		imageName = parts[len(parts)-1] // Get the last part
+	}
+	
+	// Read the index.json file to get the tag from annotations
+	indexPath := fmt.Sprintf("%s/index.json", cleanPath)
+	indexData, err := os.ReadFile(indexPath)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to read index.json from OCI directory %s: %w", cleanPath, err)
+	}
+	
+	var index OCIIndexJSON
+	if err := json.Unmarshal(indexData, &index); err != nil {
+		return "", "", fmt.Errorf("failed to parse index.json: %w", err)
+	}
+	
+	// Extract tag from the first manifest's annotations
+	imageTag := ""
+	if len(index.Manifests) > 0 && index.Manifests[0].Annotations != nil {
+		if refName, ok := index.Manifests[0].Annotations["org.opencontainers.image.ref.name"]; ok && refName != "" {
+			imageTag = refName
+			log.Debug().Msgf("Extracted tag '%s' from OCI index.json annotation", imageTag)
+		}
+	}
+	
+	if imageTag == "" {
+		return "", "", fmt.Errorf("no image tag found in OCI index.json annotations (org.opencontainers.image.ref.name). Please ensure the OCI directory was created with proper tag information")
+	}
+	
+	log.Info().Msgf("Extracted from OCI directory - image name: %s, tag: %s", imageName, imageTag)
+	return imageName, imageTag, nil
+}
+
 func transformSBOMToContainerResolution(s sbom.SBOM, imageModel types.ImageModel) ContainerResolution {
 	imageName := imageModel.Name
 	var imageTag string
+	
+	log.Debug().Msgf("transformSBOMToContainerResolution called with imageName: %s", imageName)
 
-	// Check for tar file extensions
-	if strings.HasSuffix(strings.ToLower(imageName), ".tar") {
+	// Check if this is an OCI directory source
+	if strings.HasPrefix(strings.ToLower(imageName), ociDirPrefix) {
+		// This is an OCI directory - extract image name from folder name and tag from index.json
+		log.Info().Msgf("Processing OCI directory: %s", imageName)
+		
+		actualImageName, actualImageTag, err := extractImageNameAndTagFromOCIDir(imageName)
+		if err != nil {
+			log.Warn().Err(err).Msgf("Failed to extract image name and tag from OCI directory %s. Skipping analysis of this image.", imageName)
+			return createEmptyContainerResolution()
+		}
+		
+		imageName = actualImageName
+		imageTag = actualImageTag
+	} else if strings.HasSuffix(strings.ToLower(imageName), ".tar") {
 		// This is a .tar file from docker/podman save - extract the actual image name and tag from manifest
 		log.Info().Msgf("Processing image saved as a tar file: %s", imageName)
 

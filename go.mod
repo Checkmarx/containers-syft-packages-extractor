@@ -4,7 +4,6 @@ go 1.24.1
 
 require (
 	github.com/Checkmarx/containers-types v1.0.9
-	github.com/anchore/go-collections v0.0.0-20241211140901-567f400e9a46
 	github.com/anchore/stereoscope v0.1.0
 	github.com/anchore/syft v1.21.0
 	github.com/rs/zerolog v1.34.0
@@ -32,6 +31,7 @@ require (
 	github.com/anchore/archiver/v3 v3.5.3-0.20241210171143-5b1d8d1c7c51 // indirect
 	github.com/anchore/clio v0.0.0-20250320142751-cc31d7f3f651 // indirect
 	github.com/anchore/fangs v0.0.0-20250319222917-446a1e748ec2 // indirect
+	github.com/anchore/go-collections v0.0.0-20241211140901-567f400e9a46 // indirect
 	github.com/anchore/go-homedir v0.0.0-20250319154043-c29668562e4d // indirect
 	github.com/anchore/go-logger v0.0.0-20250318195838-07ae343dd722 // indirect
 	github.com/anchore/go-macholibre v0.0.0-20250320151634-807da7ad2331 // indirect

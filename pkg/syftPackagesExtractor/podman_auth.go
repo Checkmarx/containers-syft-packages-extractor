@@ -29,8 +29,8 @@ func LoadPodmanAuth() (*PodmanAuth, error) {
 	configPath := filepath.Join(homeDir, ".config", "containers", "auth.json")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		log.Debug().Err(err).Msg("failed attempt to read Podman config file")
-		return nil, errors.New("failed attempt to read Podman config file")
+		log.Info().Msg("Podman configuration not found, continuing without Podman credentials")
+		return nil, errors.New("Podman configuration not found")
 	}
 	log.Debug().Msgf("podman config file found: %s", configPath)
 
