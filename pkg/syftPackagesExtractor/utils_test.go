@@ -1285,3 +1285,67 @@ func TestIsTaggedImageFormat(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractImageNameAndTagFromOCIArchive(t *testing.T) {
+	tests := []struct {
+		name         string
+		indexJSON    string
+		filename     string
+		expectedName string
+		expectedTag  string
+		expectError  bool
+	}{
+		{
+			name: "Valid OCI archive with tag",
+			indexJSON: `{"schemaVersion":2,"manifests":[{"annotations":{"org.opencontainers.image.ref.name":"v1.0"}}]}`,
+			filename:     "myapp.tar",
+			expectedName: "myapp",
+			expectedTag:  "v1.0",
+			expectError:  false,
+		},
+		{
+			name: "Filename with underscore extracts before underscore",
+			indexJSON: `{"schemaVersion":2,"manifests":[{"annotations":{"org.opencontainers.image.ref.name":"latest"}}]}`,
+			filename:     "traefik_v2.tar",
+			expectedName: "traefik",
+			expectedTag:  "latest",
+			expectError:  false,
+		},
+		{
+			name: "Missing tag annotation skips image",
+			indexJSON: `{"schemaVersion":2,"manifests":[{}]}`,
+			filename:     "myapp.tar",
+			expectError:  true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tmpDir, err := os.MkdirTemp("", "oci-archive-test-*")
+			assert.NoError(t, err)
+			defer os.RemoveAll(tmpDir)
+
+			tarFilePath := tmpDir + "/" + test.filename
+			tarFile, err := os.Create(tarFilePath)
+			assert.NoError(t, err)
+
+			tarWriter := tar.NewWriter(tarFile)
+			indexHeader := &tar.Header{Name: "index.json", Mode: 0644, Size: int64(len(test.indexJSON))}
+			assert.NoError(t, tarWriter.WriteHeader(indexHeader))
+			_, err = tarWriter.Write([]byte(test.indexJSON))
+			assert.NoError(t, err)
+			tarWriter.Close()
+			tarFile.Close()
+
+			imageName, imageTag, err := extractImageNameAndTagFromOCIArchive("oci-archive:" + tarFilePath)
+
+			if test.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, test.expectedName, imageName)
+				assert.Equal(t, test.expectedTag, imageTag)
+			}
+		})
+	}
+}
