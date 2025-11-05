@@ -29,6 +29,8 @@ type ContainerImage struct {
 	ImageLocations []ImageLocation
 	Layers         []string
 	History        []Layer
+	Status         string `json:"status,omitempty"`    // Status of the resolution: "Resolved" or "Failed"
+	ScanError      string `json:"ScanError,omitempty"` // Error message if status is "Failed"
 }
 
 type ImageLocation struct {

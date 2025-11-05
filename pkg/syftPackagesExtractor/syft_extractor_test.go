@@ -195,6 +195,30 @@ func TestCycloneDxSBOMFieldOmittedWhenEmpty(t *testing.T) {
 	assert.False(t, exists, "cycloneDxSBOM field should not exist in JSON output when empty")
 }
 
+// TestUnresolvedImages tests that images that fail to resolve are included with "Failed" status
+func TestUnresolvedImages(t *testing.T) {
+	extractor := &syftPackagesExtractor{}
+
+	// Test with a mix of valid and invalid images
+	images := []types.ImageModel{
+		{Name: "nonexistent-private-registry.example.com/private-image:latest", ImageLocations: []types.ImageLocation{{Origin: types.DockerFileOrigin, Path: "/path/to/Dockerfile"}}},
+		{Name: "invalid-image-name-without-registry:tag", ImageLocations: []types.ImageLocation{{Origin: types.UserInput, Path: "None"}}},
+	}
+
+	resolutions, err := extractor.AnalyzeImages(images)
+	assert.NoError(t, err, "AnalyzeImages should not return an error even if individual images fail")
+	assert.Equal(t, 2, len(resolutions), "Should have 2 resolutions (both failed)")
+
+	// Check that all resolutions have "Failed" status in ContainerImage
+	for _, resolution := range resolutions {
+		assert.Equal(t, "Failed", resolution.ContainerImage.Status, "Failed images should have 'Failed' status in ContainerImage")
+		assert.NotEmpty(t, resolution.ContainerImage.ScanError, "Failed images should have a scan error in ContainerImage")
+		assert.Equal(t, 0, len(resolution.ContainerPackages), "Failed images should have no packages")
+		assert.Equal(t, 0, len(resolution.ContainerImage.Layers), "Failed images should have no layers")
+		assert.NotEmpty(t, resolution.ContainerImage.ImageName, "Failed images should still have image name")
+	}
+}
+
 func checkResults(t *testing.T, resolutions []*ContainerResolution, expectedValues map[string]struct {
 	Layers         int
 	Packages       int

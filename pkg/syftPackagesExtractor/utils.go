@@ -904,3 +904,29 @@ func GetImageLocationsPathsString(imgModel types.ImageModel) string {
 	}
 	return strings.Join(paths, ", ")
 }
+
+// createUnresolvedResolution creates a ContainerResolution entry for an image that failed to resolve
+func createUnresolvedResolution(imageModel types.ImageModel, err error) *ContainerResolution {
+	imageNameAndTag := strings.Split(imageModel.Name, ":")
+	imageName := imageNameAndTag[0]
+	imageTag := ""
+	if len(imageNameAndTag) > 1 {
+		imageTag = imageNameAndTag[1]
+	}
+
+	return &ContainerResolution{
+		ContainerImage: ContainerImage{
+			ImageName:      imageName,
+			ImageTag:       imageTag,
+			Distribution:   types.NoFilePath,
+			ImageHash:      "",
+			ImageId:        imageModel.Name,
+			Layers:         []string{},
+			History:        []Layer{},
+			ImageLocations: getImageLocations(imageModel.ImageLocations),
+			Status:         "Failed",
+			ScanError:      err.Error(),
+		},
+		ContainerPackages: []ContainerPackage{},
+	}
+}

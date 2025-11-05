@@ -52,15 +52,21 @@ func (spe *syftPackagesExtractor) AnalyzeImagesWithPlatform(images []types.Image
 		tmpResolution, err := analyzeImage(imageModel, registryOptions, platform)
 		if err != nil {
 			log.Err(err).Msgf("Could not analyze image: %s.", imageModel.Name)
+			// Create an unresolved entry for the failed image
+			unresolvedResolution := createUnresolvedResolution(imageModel, err)
+			containerResolution = append(containerResolution, unresolvedResolution)
+			log.Info().Msgf("Added unresolved entry for image: %s. Error: %s", imageModel.Name, err.Error())
 			continue
 		}
+		// Mark successfully resolved images
+		tmpResolution.ContainerImage.Status = "Resolved"
 		containerResolution = append(containerResolution, tmpResolution)
 		log.Info().Msgf("successfully analyzed image: %s, found %d packages. image paths: %s", imageModel.Name,
 			len(tmpResolution.ContainerPackages), getPaths(imageModel.ImageLocations))
 
 	}
 
-	if containerResolution == nil || len(containerResolution) < 1 {
+	if len(containerResolution) < 1 {
 		return []*ContainerResolution{}, nil
 	}
 
