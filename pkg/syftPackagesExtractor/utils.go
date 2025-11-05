@@ -905,6 +905,81 @@ func GetImageLocationsPathsString(imgModel types.ImageModel) string {
 	return strings.Join(paths, ", ")
 }
 
+// mapErrorToCustomMessage maps Syft library errors to user-friendly custom error messages
+func mapErrorToCustomMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	errorStr := err.Error()
+	errorLower := strings.ToLower(errorStr)
+
+	// Check for each error pattern (case-insensitive)
+	if strings.Contains(errorLower, "toomanyrequests") {
+		return "Exceeded request limit to Docker Hub"
+	}
+
+	if strings.Contains(errorLower, "could not parse reference") {
+		registry := extractRegistryFromError(errorStr)
+		return fmt.Sprintf("Unable to parse image name or tag. %s", registry)
+	}
+
+	if strings.Contains(errorLower, "manifest_unknown") {
+		registry := extractRegistryFromError(errorStr)
+		return fmt.Sprintf("The requested image is not found or is unavailable. %s", registry)
+	}
+
+	if strings.Contains(errorLower, "authentication is required") {
+		registry := extractRegistryFromError(errorStr)
+		return fmt.Sprintf("Retrieval from the private repository failed. Verify the credentials used for the integration. %s", registry)
+	}
+
+	if strings.Contains(errorLower, "unauthorized") {
+		registry := extractRegistryFromError(errorStr)
+		return fmt.Sprintf("Access to the image is restricted. Verify the repository permissions and credentials. %s", registry)
+	}
+
+	if strings.Contains(errorLower, "no child with platform linux/amd64") {
+		registry := extractRegistryFromError(errorStr)
+		return fmt.Sprintf("The image is incompatible with the scanning tool. A Linux/AMD64 version is required. %s", registry)
+	}
+
+	if strings.Contains(errorLower, "unsupported mediatype") {
+		registry := extractRegistryFromError(errorStr)
+		return fmt.Sprintf("The image format is outdated and unsupported. You may need to update or rebuild the image. %s", registry)
+	}
+
+	// Default generic error message
+	return "Unexpected error occurred during image resolution"
+}
+
+// extractRegistryFromError attempts to extract registry information from the error message
+func extractRegistryFromError(errorStr string) string {
+	// Try to extract registry URL patterns from the error
+	// Common patterns: "https://registry.example.com/v2/", "registry.example.com", etc.
+
+	// Pattern 1: Extract from URL format (https://registry.example.com/...)
+	urlPattern := regexp.MustCompile(`https?://([^/\s:]+(?::\d+)?)`)
+	if matches := urlPattern.FindStringSubmatch(errorStr); len(matches) > 1 {
+		return fmt.Sprintf("Registry: %s", matches[1])
+	}
+
+	// Pattern 2: Extract from "Get \"https://...\"" format
+	getPattern := regexp.MustCompile(`Get\s+"https?://([^/\s"]+)`)
+	if matches := getPattern.FindStringSubmatch(errorStr); len(matches) > 1 {
+		return fmt.Sprintf("Registry: %s", matches[1])
+	}
+
+	// Pattern 3: Extract from registry path format (registry.example.com/namespace/image)
+	registryPattern := regexp.MustCompile(`([a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?::\d+)?)/`)
+	if matches := registryPattern.FindStringSubmatch(errorStr); len(matches) > 1 {
+		return fmt.Sprintf("Registry: %s", matches[1])
+	}
+
+	// If no registry found, return empty string
+	return ""
+}
+
 // createUnresolvedResolution creates a ContainerResolution entry for an image that failed to resolve
 func createUnresolvedResolution(imageModel types.ImageModel, err error) *ContainerResolution {
 	imageNameAndTag := strings.Split(imageModel.Name, ":")
@@ -913,6 +988,9 @@ func createUnresolvedResolution(imageModel types.ImageModel, err error) *Contain
 	if len(imageNameAndTag) > 1 {
 		imageTag = imageNameAndTag[1]
 	}
+
+	// Map the error to a custom user-friendly message
+	customErrorMessage := mapErrorToCustomMessage(err)
 
 	return &ContainerResolution{
 		ContainerImage: ContainerImage{
@@ -925,7 +1003,7 @@ func createUnresolvedResolution(imageModel types.ImageModel, err error) *Contain
 			History:        []Layer{},
 			ImageLocations: getImageLocations(imageModel.ImageLocations),
 			Status:         "Failed",
-			ScanError:      err.Error(),
+			ScanError:      customErrorMessage,
 		},
 		ContainerPackages: []ContainerPackage{},
 	}

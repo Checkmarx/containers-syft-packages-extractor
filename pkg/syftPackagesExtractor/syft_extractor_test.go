@@ -2,6 +2,7 @@ package syftPackagesExtractor
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/Checkmarx/containers-types/types"
@@ -216,6 +217,64 @@ func TestUnresolvedImages(t *testing.T) {
 		assert.Equal(t, 0, len(resolution.ContainerPackages), "Failed images should have no packages")
 		assert.Equal(t, 0, len(resolution.ContainerImage.Layers), "Failed images should have no layers")
 		assert.NotEmpty(t, resolution.ContainerImage.ImageName, "Failed images should still have image name")
+	}
+}
+
+// TestErrorMapping tests that Syft errors are correctly mapped to custom error messages
+func TestErrorMapping(t *testing.T) {
+	tests := []struct {
+		name          string
+		inputError    string
+		expectedError string
+	}{
+		{
+			name:          "TooManyRequests error",
+			inputError:    "error: toomanyrequests: exceeded rate limit",
+			expectedError: "Exceeded request limit to Docker Hub",
+		},
+		{
+			name:          "Could not parse reference error",
+			inputError:    "could not parse reference: invalid format at https://registry.example.com/v2/",
+			expectedError: "Unable to parse image name or tag. Registry: registry.example.com",
+		},
+		{
+			name:          "MANIFEST_UNKNOWN error",
+			inputError:    "GET https://index.docker.io/v2/library/nonexistent/manifests/latest: MANIFEST_UNKNOWN: manifest unknown",
+			expectedError: "The requested image is not found or is unavailable. Registry: index.docker.io",
+		},
+		{
+			name:          "Authentication is required error",
+			inputError:    "GET https://private-registry.example.com/v2/: authentication is required",
+			expectedError: "Retrieval from the private repository failed. Verify the credentials used for the integration. Registry: private-registry.example.com",
+		},
+		{
+			name:          "Unauthorized error",
+			inputError:    "GET https://registry.example.com/v2/library/image/manifests/tag: UNAUTHORIZED: authentication required",
+			expectedError: "Access to the image is restricted. Verify the repository permissions and credentials. Registry: registry.example.com",
+		},
+		{
+			name:          "No child with platform error",
+			inputError:    "no child with platform linux/amd64 found in manifest list",
+			expectedError: "The image is incompatible with the scanning tool. A Linux/AMD64 version is required.",
+		},
+		{
+			name:          "Unsupported MediaType error",
+			inputError:    "unsupported MediaType: application/vnd.oci.image.manifest.v1+json",
+			expectedError: "The image format is outdated and unsupported. You may need to update or rebuild the image.",
+		},
+		{
+			name:          "Generic error",
+			inputError:    "some random error that doesn't match any pattern",
+			expectedError: "Unexpected error occurred during image resolution",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := errors.New(tt.inputError)
+			result := mapErrorToCustomMessage(err)
+			assert.Contains(t, result, tt.expectedError, "Error message should contain expected text")
+		})
 	}
 }
 
