@@ -895,3 +895,231 @@ func TestPlatformConstants(t *testing.T) {
 		}
 	}
 }
+
+func TestParseRpmSourceName(t *testing.T) {
+	tests := []struct {
+		name      string
+		sourceRpm string
+		expected  string
+	}{
+		{
+			name:      "Empty string",
+			sourceRpm: "",
+			expected:  "",
+		},
+		{
+			name:      "With .src.rpm suffix and version pattern",
+			sourceRpm: "test-package-1.2.3-1.src.rpm",
+			expected:  "test-package",
+		},
+		{
+			name:      "With .SRC.RPM suffix (uppercase)",
+			sourceRpm: "test-package-1.2.3-1.SRC.RPM",
+			expected:  "test-package",
+		},
+		{
+			name:      "With .Src.Rpm suffix (mixed case)",
+			sourceRpm: "test-package-1.2.3-1.Src.Rpm",
+			expected:  "test-package",
+		},
+		{
+			name:      "Without version pattern, split by dash",
+			sourceRpm: "test-package-name-version-release.src.rpm",
+			expected:  "test-package-name",
+		},
+		{
+			name:      "Without version pattern, less than 3 parts",
+			sourceRpm: "test-version.src.rpm",
+			expected:  "",
+		},
+		{
+			name:      "Without version pattern, exactly 3 parts",
+			sourceRpm: "test-version-release.src.rpm",
+			expected:  "test",
+		},
+		{
+			name:      "Complex package name with version pattern",
+			sourceRpm: "my-complex-package-name-2.0.1-5.src.rpm",
+			expected:  "my-complex-package-name",
+		},
+		{
+			name:      "Package name with numbers before version",
+			sourceRpm: "package123-4.5.6-1.src.rpm",
+			expected:  "package123",
+		},
+		{
+			name:      "Without .src.rpm suffix but with version pattern",
+			sourceRpm: "test-package-1.2.3-1",
+			expected:  "test-package",
+		},
+		{
+			name:      "Only .src.rpm suffix",
+			sourceRpm: ".src.rpm",
+			expected:  "",
+		},
+		{
+			name:      "Version pattern at start",
+			sourceRpm: "-123-test.src.rpm",
+			expected:  "",
+		},
+		{
+			name:      "Multiple version patterns, uses first",
+			sourceRpm: "test-1-2-3.src.rpm",
+			expected:  "test",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := parseRpmSourceName(test.sourceRpm)
+			assert.Equal(t, test.expected, result, "parseRpmSourceName(%q) = %q, want %q", test.sourceRpm, result, test.expected)
+		})
+	}
+}
+
+func TestParseRpmSourceVersion(t *testing.T) {
+	tests := []struct {
+		name      string
+		sourceRpm string
+		expected  string
+	}{
+		{
+			name:      "Empty string",
+			sourceRpm: "",
+			expected:  "",
+		},
+		{
+			name:      "With .src.rpm suffix and version pattern",
+			sourceRpm: "test-package-1.2.3-1.src.rpm",
+			expected:  "1.2.3-1",
+		},
+		{
+			name:      "With .SRC.RPM suffix (uppercase)",
+			sourceRpm: "test-package-1.2.3-1.SRC.RPM",
+			expected:  "1.2.3-1",
+		},
+		{
+			name:      "With .Src.Rpm suffix (mixed case)",
+			sourceRpm: "test-package-1.2.3-1.Src.Rpm",
+			expected:  "1.2.3-1",
+		},
+		{
+			name:      "Without version pattern, split by dash",
+			sourceRpm: "test-package-name-version-release.src.rpm",
+			expected:  "version-release",
+		},
+		{
+			name:      "Without version pattern, less than 3 parts",
+			sourceRpm: "test-version.src.rpm",
+			expected:  "",
+		},
+		{
+			name:      "Without version pattern, exactly 3 parts",
+			sourceRpm: "test-version-release.src.rpm",
+			expected:  "version-release",
+		},
+		{
+			name:      "Complex package name with version pattern",
+			sourceRpm: "my-complex-package-name-2.0.1-5.src.rpm",
+			expected:  "2.0.1-5",
+		},
+		{
+			name:      "Package name with numbers before version",
+			sourceRpm: "package123-4.5.6-1.src.rpm",
+			expected:  "4.5.6-1",
+		},
+		{
+			name:      "Without .src.rpm suffix but with version pattern",
+			sourceRpm: "test-package-1.2.3-1",
+			expected:  "1.2.3-1",
+		},
+		{
+			name:      "Only .src.rpm suffix",
+			sourceRpm: ".src.rpm",
+			expected:  "",
+		},
+		{
+			name:      "Version pattern at start",
+			sourceRpm: "-123-test.src.rpm",
+			expected:  "123-test",
+		},
+		{
+			name:      "Multiple version patterns, uses first",
+			sourceRpm: "test-1-2-3.src.rpm",
+			expected:  "1-2-3",
+		},
+		{
+			name:      "Version with single digit",
+			sourceRpm: "package-5.src.rpm",
+			expected:  "5",
+		},
+		{
+			name:      "Version with multiple digits",
+			sourceRpm: "package-12345.src.rpm",
+			expected:  "12345",
+		},
+		{
+			name:      "Version with release number",
+			sourceRpm: "package-1.0.0-2.src.rpm",
+			expected:  "1.0.0-2",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := parseRpmSourceVersion(test.sourceRpm)
+			assert.Equal(t, test.expected, result, "parseRpmSourceVersion(%q) = %q, want %q", test.sourceRpm, result, test.expected)
+		})
+	}
+}
+
+func TestRemoveSrcRpmSuffix(t *testing.T) {
+	tests := []struct {
+		name      string
+		sourceRpm string
+		expected  string
+	}{
+		{
+			name:      "Empty string",
+			sourceRpm: "",
+			expected:  "",
+		},
+		{
+			name:      "Lowercase .src.rpm",
+			sourceRpm: "test-package-1.0.src.rpm",
+			expected:  "test-package-1.0",
+		},
+		{
+			name:      "Uppercase .SRC.RPM",
+			sourceRpm: "test-package-1.0.SRC.RPM",
+			expected:  "test-package-1.0",
+		},
+		{
+			name:      "Mixed case .Src.Rpm",
+			sourceRpm: "test-package-1.0.Src.Rpm",
+			expected:  "test-package-1.0",
+		},
+		{
+			name:      "No suffix",
+			sourceRpm: "test-package-1.0",
+			expected:  "test-package-1.0",
+		},
+		{
+			name:      "Only suffix",
+			sourceRpm: ".src.rpm",
+			expected:  "",
+		},
+		{
+			name:      "Preserves original case",
+			sourceRpm: "Test-Package-1.0.SRC.rpm",
+			expected:  "Test-Package-1.0",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := removeSrcRpmSuffix(test.sourceRpm)
+			assert.Equal(t, test.expected, result, "removeSrcRpmSuffix(%q) = %q, want %q", test.sourceRpm, result, test.expected)
+		})
+	}
+}
