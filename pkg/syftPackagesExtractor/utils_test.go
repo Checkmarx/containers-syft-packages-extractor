@@ -1,6 +1,8 @@
 package syftPackagesExtractor
 
 import (
+	"archive/tar"
+	"os"
 	"testing"
 
 	"github.com/Checkmarx/containers-types/types"
@@ -896,230 +898,454 @@ func TestPlatformConstants(t *testing.T) {
 	}
 }
 
-func TestParseRpmSourceName(t *testing.T) {
+func TestCreateEmptyContainerResolution(t *testing.T) {
+	// Test the createEmptyContainerResolution helper function
+	result := createEmptyContainerResolution()
+
+	// Verify it returns an empty ContainerResolution
+	assert.Equal(t, ContainerImage{}, result.ContainerImage)
+	assert.Empty(t, result.ContainerPackages)
+	assert.Len(t, result.ContainerPackages, 0)
+}
+
+func TestIsCompressedTarFile(t *testing.T) {
 	tests := []struct {
-		name      string
-		sourceRpm string
-		expected  string
+		name     string
+		filename string
+		expected bool
 	}{
 		{
-			name:      "Empty string",
-			sourceRpm: "",
-			expected:  "",
+			name:     "Regular tar file",
+			filename: "image.tar",
+			expected: false,
 		},
 		{
-			name:      "With .src.rpm suffix and version pattern",
-			sourceRpm: "test-package-1.2.3-1.src.rpm",
-			expected:  "test-package",
+			name:     "Compressed tar.gz file",
+			filename: "image.tar.gz",
+			expected: true,
 		},
 		{
-			name:      "With .SRC.RPM suffix (uppercase)",
-			sourceRpm: "test-package-1.2.3-1.SRC.RPM",
-			expected:  "test-package",
+			name:     "Compressed tar.bz2 file",
+			filename: "image.tar.bz2",
+			expected: true,
 		},
 		{
-			name:      "With .Src.Rpm suffix (mixed case)",
-			sourceRpm: "test-package-1.2.3-1.Src.Rpm",
-			expected:  "test-package",
+			name:     "Compressed tar.xz file",
+			filename: "image.tar.xz",
+			expected: true,
 		},
 		{
-			name:      "Without version pattern, split by dash",
-			sourceRpm: "test-package-name-version-release.src.rpm",
-			expected:  "test-package-name",
+			name:     "Uppercase tar.gz file",
+			filename: "image.TAR.GZ",
+			expected: true,
 		},
 		{
-			name:      "Without version pattern, less than 3 parts",
-			sourceRpm: "test-version.src.rpm",
-			expected:  "",
+			name:     "Regular file",
+			filename: "image.txt",
+			expected: false,
 		},
 		{
-			name:      "Without version pattern, exactly 3 parts",
-			sourceRpm: "test-version-release.src.rpm",
-			expected:  "test",
-		},
-		{
-			name:      "Complex package name with version pattern",
-			sourceRpm: "my-complex-package-name-2.0.1-5.src.rpm",
-			expected:  "my-complex-package-name",
-		},
-		{
-			name:      "Package name with numbers before version",
-			sourceRpm: "package123-4.5.6-1.src.rpm",
-			expected:  "package123",
-		},
-		{
-			name:      "Without .src.rpm suffix but with version pattern",
-			sourceRpm: "test-package-1.2.3-1",
-			expected:  "test-package",
-		},
-		{
-			name:      "Only .src.rpm suffix",
-			sourceRpm: ".src.rpm",
-			expected:  "",
-		},
-		{
-			name:      "Version pattern at start",
-			sourceRpm: "-123-test.src.rpm",
-			expected:  "",
-		},
-		{
-			name:      "Multiple version patterns, uses first",
-			sourceRpm: "test-1-2-3.src.rpm",
-			expected:  "test",
+			name:     "Empty filename",
+			filename: "",
+			expected: false,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			result := parseRpmSourceName(test.sourceRpm)
-			assert.Equal(t, test.expected, result, "parseRpmSourceName(%q) = %q, want %q", test.sourceRpm, result, test.expected)
+			result := isCompressedTarFile(test.filename)
+			assert.Equal(t, test.expected, result)
 		})
 	}
 }
 
-func TestParseRpmSourceVersion(t *testing.T) {
+func TestParseImageNameAndTag(t *testing.T) {
 	tests := []struct {
-		name      string
-		sourceRpm string
-		expected  string
+		name         string
+		imageString  string
+		expectedName string
+		expectedTag  string
+		expectError  bool
 	}{
 		{
-			name:      "Empty string",
-			sourceRpm: "",
-			expected:  "",
+			name:         "Image with tag",
+			imageString:  "nginx:1.21",
+			expectedName: "nginx",
+			expectedTag:  "1.21",
+			expectError:  false,
 		},
 		{
-			name:      "With .src.rpm suffix and version pattern",
-			sourceRpm: "test-package-1.2.3-1.src.rpm",
-			expected:  "1.2.3-1",
+			name:         "Image with latest tag",
+			imageString:  "alpine:latest",
+			expectedName: "alpine",
+			expectedTag:  "latest",
+			expectError:  false,
 		},
 		{
-			name:      "With .SRC.RPM suffix (uppercase)",
-			sourceRpm: "test-package-1.2.3-1.SRC.RPM",
-			expected:  "1.2.3-1",
+			name:         "Image without tag",
+			imageString:  "ubuntu",
+			expectedName: "",
+			expectedTag:  "",
+			expectError:  true,
 		},
 		{
-			name:      "With .Src.Rpm suffix (mixed case)",
-			sourceRpm: "test-package-1.2.3-1.Src.Rpm",
-			expected:  "1.2.3-1",
+			name:         "Image with multiple colons",
+			imageString:  "registry.example.com:5000/namespace/image:tag",
+			expectedName: "registry.example.com:5000/namespace/image",
+			expectedTag:  "tag",
+			expectError:  false,
 		},
 		{
-			name:      "Without version pattern, split by dash",
-			sourceRpm: "test-package-name-version-release.src.rpm",
-			expected:  "version-release",
+			name:         "Image with colon at end",
+			imageString:  "nginx:",
+			expectedName: "",
+			expectedTag:  "",
+			expectError:  true,
 		},
 		{
-			name:      "Without version pattern, less than 3 parts",
-			sourceRpm: "test-version.src.rpm",
-			expected:  "",
-		},
-		{
-			name:      "Without version pattern, exactly 3 parts",
-			sourceRpm: "test-version-release.src.rpm",
-			expected:  "version-release",
-		},
-		{
-			name:      "Complex package name with version pattern",
-			sourceRpm: "my-complex-package-name-2.0.1-5.src.rpm",
-			expected:  "2.0.1-5",
-		},
-		{
-			name:      "Package name with numbers before version",
-			sourceRpm: "package123-4.5.6-1.src.rpm",
-			expected:  "4.5.6-1",
-		},
-		{
-			name:      "Without .src.rpm suffix but with version pattern",
-			sourceRpm: "test-package-1.2.3-1",
-			expected:  "1.2.3-1",
-		},
-		{
-			name:      "Only .src.rpm suffix",
-			sourceRpm: ".src.rpm",
-			expected:  "",
-		},
-		{
-			name:      "Version pattern at start",
-			sourceRpm: "-123-test.src.rpm",
-			expected:  "123-test",
-		},
-		{
-			name:      "Multiple version patterns, uses first",
-			sourceRpm: "test-1-2-3.src.rpm",
-			expected:  "1-2-3",
-		},
-		{
-			name:      "Version with single digit",
-			sourceRpm: "package-5.src.rpm",
-			expected:  "5",
-		},
-		{
-			name:      "Version with multiple digits",
-			sourceRpm: "package-12345.src.rpm",
-			expected:  "12345",
-		},
-		{
-			name:      "Version with release number",
-			sourceRpm: "package-1.0.0-2.src.rpm",
-			expected:  "1.0.0-2",
+			name:         "Empty string",
+			imageString:  "",
+			expectedName: "",
+			expectedTag:  "",
+			expectError:  true,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			result := parseRpmSourceVersion(test.sourceRpm)
-			assert.Equal(t, test.expected, result, "parseRpmSourceVersion(%q) = %q, want %q", test.sourceRpm, result, test.expected)
+			imageName, imageTag, err := parseImageNameAndTag(test.imageString)
+
+			if test.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Equal(t, test.expectedName, imageName)
+			assert.Equal(t, test.expectedTag, imageTag)
 		})
 	}
 }
 
-func TestRemoveSrcRpmSuffix(t *testing.T) {
+func TestExtractImageNameAndTagFromTar(t *testing.T) {
+	// Test the extractImageNameAndTagFromTar function
 	tests := []struct {
-		name      string
-		sourceRpm string
-		expected  string
+		name         string
+		manifestJSON string
+		expectedName string
+		expectedTag  string
+		expectError  bool
 	}{
 		{
-			name:      "Empty string",
-			sourceRpm: "",
-			expected:  "",
+			name: "Valid manifest with image and tag",
+			manifestJSON: `[{
+				"RepoTags": ["nginx:1.21"]
+			}]`,
+			expectedName: "nginx",
+			expectedTag:  "1.21",
+			expectError:  false,
 		},
 		{
-			name:      "Lowercase .src.rpm",
-			sourceRpm: "test-package-1.0.src.rpm",
-			expected:  "test-package-1.0",
+			name: "Valid manifest with image without tag",
+			manifestJSON: `[{
+				"RepoTags": ["alpine"]
+			}]`,
+			expectedName: "",
+			expectedTag:  "",
+			expectError:  true, // Now returns error for images without tags
 		},
 		{
-			name:      "Uppercase .SRC.RPM",
-			sourceRpm: "test-package-1.0.SRC.RPM",
-			expected:  "test-package-1.0",
+			name: "Valid manifest with registry path",
+			manifestJSON: `[{
+				"RepoTags": ["registry.example.com:5000/namespace/image:tag"]
+			}]`,
+			expectedName: "registry.example.com:5000/namespace/image",
+			expectedTag:  "tag",
+			expectError:  false,
 		},
 		{
-			name:      "Mixed case .Src.Rpm",
-			sourceRpm: "test-package-1.0.Src.Rpm",
-			expected:  "test-package-1.0",
+			name: "Empty RepoTags",
+			manifestJSON: `[{
+				"RepoTags": []
+			}]`,
+			expectedName: "",
+			expectedTag:  "",
+			expectError:  true,
 		},
 		{
-			name:      "No suffix",
-			sourceRpm: "test-package-1.0",
-			expected:  "test-package-1.0",
-		},
-		{
-			name:      "Only suffix",
-			sourceRpm: ".src.rpm",
-			expected:  "",
-		},
-		{
-			name:      "Preserves original case",
-			sourceRpm: "Test-Package-1.0.SRC.rpm",
-			expected:  "Test-Package-1.0",
+			name:         "Invalid JSON",
+			manifestJSON: `invalid json`,
+			expectedName: "",
+			expectedTag:  "",
+			expectError:  true,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			result := removeSrcRpmSuffix(test.sourceRpm)
-			assert.Equal(t, test.expected, result, "removeSrcRpmSuffix(%q) = %q, want %q", test.sourceRpm, result, test.expected)
+			// Create a temporary tar file with the test manifest
+			tmpFile, err := os.CreateTemp("", "test-*.tar")
+			if err != nil {
+				t.Fatalf("Failed to create temp file: %v", err)
+			}
+			defer os.Remove(tmpFile.Name())
+			defer tmpFile.Close()
+
+			// Create a tar writer
+			tarWriter := tar.NewWriter(tmpFile)
+
+			// Add manifest.json to the tar
+			manifestHeader := &tar.Header{
+				Name: "manifest.json",
+				Size: int64(len(test.manifestJSON)),
+				Mode: 0644,
+			}
+			if err := tarWriter.WriteHeader(manifestHeader); err != nil {
+				t.Fatalf("Failed to write tar header: %v", err)
+			}
+			if _, err := tarWriter.Write([]byte(test.manifestJSON)); err != nil {
+				t.Fatalf("Failed to write manifest data: %v", err)
+			}
+			tarWriter.Close()
+			tmpFile.Close()
+
+			// Test the extraction function
+			imageName, imageTag, err := extractImageNameAndTagFromTar(tmpFile.Name())
+
+			if test.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, test.expectedName, imageName)
+				assert.Equal(t, test.expectedTag, imageTag)
+			}
+		})
+	}
+}
+
+func TestExtractImageNameAndTagFromOCIDir(t *testing.T) {
+	tests := []struct {
+		name         string
+		indexJSON    string
+		dirName      string
+		expectedName string
+		expectedTag  string
+		expectError  bool
+	}{
+		{
+			name: "Valid OCI dir with tag annotation",
+			indexJSON: `{
+				"schemaVersion": 2,
+				"manifests": [{
+					"mediaType": "application/vnd.oci.image.manifest.v1+json",
+					"digest": "sha256:abc123",
+					"size": 1024,
+					"annotations": {
+						"org.opencontainers.image.ref.name": "latest"
+					}
+				}]
+			}`,
+			dirName:      "alpine",
+			expectedName: "alpine",
+			expectedTag:  "latest",
+			expectError:  false,
+		},
+		{
+			name: "Multiple manifests - uses first manifest tag",
+			indexJSON: `{
+				"schemaVersion": 2,
+				"manifests": [
+					{
+						"annotations": {
+							"org.opencontainers.image.ref.name": "alpine"
+						}
+					},
+					{
+						"annotations": {
+							"org.opencontainers.image.ref.name": "latest"
+						}
+					}
+				]
+			}`,
+			dirName:      "alpine",
+			expectedName: "alpine",
+			expectedTag:  "alpine",
+			expectError:  false,
+		},
+		{
+			name: "OCI dir from nested path",
+			indexJSON: `{
+				"schemaVersion": 2,
+				"manifests": [{
+					"annotations": {
+						"org.opencontainers.image.ref.name": "v1.0"
+					}
+				}]
+			}`,
+			dirName:      "library/nginx",
+			expectedName: "nginx",
+			expectedTag:  "v1.0",
+			expectError:  false,
+		},
+		{
+			name: "Missing tag annotation",
+			indexJSON: `{
+				"schemaVersion": 2,
+				"manifests": [{
+					"mediaType": "application/vnd.oci.image.manifest.v1+json"
+				}]
+			}`,
+			dirName:      "alpine",
+			expectedName: "",
+			expectedTag:  "",
+			expectError:  true,
+		},
+		{
+			name: "Empty manifests",
+			indexJSON: `{
+				"schemaVersion": 2,
+				"manifests": []
+			}`,
+			dirName:      "alpine",
+			expectedName: "",
+			expectedTag:  "",
+			expectError:  true,
+		},
+		{
+			name:         "Invalid JSON",
+			indexJSON:    `invalid json`,
+			dirName:      "alpine",
+			expectedName: "",
+			expectedTag:  "",
+			expectError:  true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Create temporary OCI directory structure
+			tmpDir, err := os.MkdirTemp("", "oci-test-*")
+			if err != nil {
+				t.Fatalf("Failed to create temp dir: %v", err)
+			}
+			defer os.RemoveAll(tmpDir)
+
+			// Create nested directory if needed
+			ociDir := tmpDir
+			if test.dirName != "" {
+				ociDir = tmpDir + "/" + test.dirName
+				if err := os.MkdirAll(ociDir, 0755); err != nil {
+					t.Fatalf("Failed to create OCI dir: %v", err)
+				}
+			}
+
+			// Write index.json
+			indexPath := ociDir + "/index.json"
+			if err := os.WriteFile(indexPath, []byte(test.indexJSON), 0644); err != nil {
+				t.Fatalf("Failed to write index.json: %v", err)
+			}
+
+			// Test with oci-dir prefix
+			inputPath := "oci-dir:" + ociDir
+			imageName, imageTag, err := extractImageNameAndTagFromOCIDir(inputPath)
+
+			if test.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, test.expectedName, imageName)
+				assert.Equal(t, test.expectedTag, imageTag)
+			}
+		})
+	}
+}
+
+func TestIsTaggedImageFormat(t *testing.T) {
+	tests := []struct {
+		name     string
+		image    string
+		expected bool
+	}{
+		{"Standard image with tag", "nginx:latest", true},
+		{"Registry image with tag", "docker.io/library/alpine:3.18", true},
+		{"Docker daemon", "docker:nginx:latest", true},
+		{"Podman daemon", "podman:alpine:3.18", true},
+		{"Registry prefix", "registry:myregistry.io/app:v1.0", true},
+		{"OCI directory", "oci-dir:/path/to/image", false},
+		{"OCI archive", "oci-archive:image.tar", false},
+		{"Docker archive", "docker-archive:image.tar", false},
+		{"File prefix", "file:image.tar", false},
+		{"Tar file", "alpine.tar", false},
+		{"Image without tag", "alpine", false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := isTaggedImageFormat(test.image)
+			assert.Equal(t, test.expected, result)
+		})
+	}
+}
+
+func TestExtractImageNameAndTagFromOCIArchive(t *testing.T) {
+	tests := []struct {
+		name         string
+		indexJSON    string
+		filename     string
+		expectedName string
+		expectedTag  string
+		expectError  bool
+	}{
+		{
+			name: "Valid OCI archive with tag",
+			indexJSON: `{"schemaVersion":2,"manifests":[{"annotations":{"org.opencontainers.image.ref.name":"v1.0"}}]}`,
+			filename:     "myapp.tar",
+			expectedName: "myapp",
+			expectedTag:  "v1.0",
+			expectError:  false,
+		},
+		{
+			name: "Filename with underscore extracts before underscore",
+			indexJSON: `{"schemaVersion":2,"manifests":[{"annotations":{"org.opencontainers.image.ref.name":"latest"}}]}`,
+			filename:     "traefik_v2.tar",
+			expectedName: "traefik",
+			expectedTag:  "latest",
+			expectError:  false,
+		},
+		{
+			name: "Missing tag annotation skips image",
+			indexJSON: `{"schemaVersion":2,"manifests":[{}]}`,
+			filename:     "myapp.tar",
+			expectError:  true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tmpDir, err := os.MkdirTemp("", "oci-archive-test-*")
+			assert.NoError(t, err)
+			defer os.RemoveAll(tmpDir)
+
+			tarFilePath := tmpDir + "/" + test.filename
+			tarFile, err := os.Create(tarFilePath)
+			assert.NoError(t, err)
+
+			tarWriter := tar.NewWriter(tarFile)
+			indexHeader := &tar.Header{Name: "index.json", Mode: 0644, Size: int64(len(test.indexJSON))}
+			assert.NoError(t, tarWriter.WriteHeader(indexHeader))
+			_, err = tarWriter.Write([]byte(test.indexJSON))
+			assert.NoError(t, err)
+			tarWriter.Close()
+			tarFile.Close()
+
+			imageName, imageTag, err := extractImageNameAndTagFromOCIArchive("oci-archive:" + tarFilePath)
+
+			if test.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, test.expectedName, imageName)
+				assert.Equal(t, test.expectedTag, imageTag)
+			}
 		})
 	}
 }
