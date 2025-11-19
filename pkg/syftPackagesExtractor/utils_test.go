@@ -600,12 +600,12 @@ func TestGetPackageRelationships(t *testing.T) {
 			containerPkg: pkg.Package{
 				Version: "1.0.0",
 				Metadata: pkg.RpmDBEntry{
-					SourceRpm: "test-pkg",
+					SourceRpm: "test-pkg-1.0.0-1.src.rpm",
 					Version:   "1.0.0",
 				},
 			},
 			expectedName: "test-pkg",
-			expectedVer:  "1.0.0",
+			expectedVer:  "1.0.0-1",
 		},
 		{
 			name: "Unknown package type",
@@ -650,7 +650,7 @@ func TestGetPackageRelationships(t *testing.T) {
 				},
 			},
 			expectedName: "",
-			expectedVer:  "",
+			expectedVer:  "1.0.0",
 		},
 		{
 			name: "APK package with missing version",
@@ -681,12 +681,12 @@ func TestGetPackageRelationships(t *testing.T) {
 			containerPkg: pkg.Package{
 				Version: "1.0.0",
 				Metadata: pkg.RpmDBEntry{
-					SourceRpm: "test-pkg",
+					SourceRpm: "test-pkg-1.0.0-1.src.rpm",
 					Version:   "",
 				},
 			},
 			expectedName: "test-pkg",
-			expectedVer:  "1.0.0",
+			expectedVer:  "1.0.0-1",
 		},
 	}
 
@@ -1296,26 +1296,26 @@ func TestExtractImageNameAndTagFromOCIArchive(t *testing.T) {
 		expectError  bool
 	}{
 		{
-			name: "Valid OCI archive with tag",
-			indexJSON: `{"schemaVersion":2,"manifests":[{"annotations":{"org.opencontainers.image.ref.name":"v1.0"}}]}`,
+			name:         "Valid OCI archive with tag",
+			indexJSON:    `{"schemaVersion":2,"manifests":[{"annotations":{"org.opencontainers.image.ref.name":"v1.0"}}]}`,
 			filename:     "myapp.tar",
 			expectedName: "myapp",
 			expectedTag:  "v1.0",
 			expectError:  false,
 		},
 		{
-			name: "Filename with underscore extracts before underscore",
-			indexJSON: `{"schemaVersion":2,"manifests":[{"annotations":{"org.opencontainers.image.ref.name":"latest"}}]}`,
+			name:         "Filename with underscore extracts before underscore",
+			indexJSON:    `{"schemaVersion":2,"manifests":[{"annotations":{"org.opencontainers.image.ref.name":"latest"}}]}`,
 			filename:     "traefik_v2.tar",
 			expectedName: "traefik",
 			expectedTag:  "latest",
 			expectError:  false,
 		},
 		{
-			name: "Missing tag annotation skips image",
-			indexJSON: `{"schemaVersion":2,"manifests":[{}]}`,
-			filename:     "myapp.tar",
-			expectError:  true,
+			name:        "Missing tag annotation skips image",
+			indexJSON:   `{"schemaVersion":2,"manifests":[{}]}`,
+			filename:    "myapp.tar",
+			expectError: true,
 		},
 	}
 

@@ -783,20 +783,76 @@ func getDebSourceVersion(pack pkg.Package, debMeta pkg.DpkgDBEntry) string {
 }
 
 func getRpmSourceName(rpmMeta pkg.RpmDBEntry) string {
-	if rpmMeta.SourceRpm != "" {
-		return rpmMeta.SourceRpm
+	return parseRpmSourceName(rpmMeta.SourceRpm)
+}
+
+func getRpmSourceVersion(pack pkg.Package, rpmMeta pkg.RpmDBEntry) string {
+	if version := parseRpmSourceVersion(rpmMeta.SourceRpm); version != "" {
+		return version
+	}
+	if rpmMeta.Version != "" {
+		return rpmMeta.Version
+	}
+	return pack.Version
+}
+
+func parseRpmSourceName(sourceRpm string) string {
+	if sourceRpm == "" {
+		return ""
+	}
+
+	withoutSuffix := removeSrcRpmSuffix(sourceRpm)
+	if withoutSuffix == "" {
+		return ""
+	}
+
+	versionStartRegex := regexp.MustCompile(`-(\d+)`)
+	versionStartMatch := versionStartRegex.FindStringIndex(withoutSuffix)
+	if versionStartMatch != nil {
+		versionStartIndex := versionStartMatch[0]
+		return withoutSuffix[:versionStartIndex]
+	}
+
+	parts := strings.Split(withoutSuffix, "-")
+	if len(parts) >= 3 {
+		return strings.Join(parts[:len(parts)-2], "-")
 	}
 	return ""
 }
 
-func getRpmSourceVersion(pack pkg.Package, rpmMeta pkg.RpmDBEntry) string {
-	if rpmMeta.SourceRpm != "" {
-		if rpmMeta.Version != "" {
-			return rpmMeta.Version
-		}
-		return pack.Version
+func parseRpmSourceVersion(sourceRpm string) string {
+	if sourceRpm == "" {
+		return ""
+	}
+
+	withoutSuffix := removeSrcRpmSuffix(sourceRpm)
+	if withoutSuffix == "" {
+		return ""
+	}
+
+	versionStartRegex := regexp.MustCompile(`-(\d+)`)
+	versionStartMatch := versionStartRegex.FindStringIndex(withoutSuffix)
+	if versionStartMatch != nil {
+		versionStartIndex := versionStartMatch[0] + 1
+		return withoutSuffix[versionStartIndex:]
+	}
+
+	parts := strings.Split(withoutSuffix, "-")
+	if len(parts) >= 3 {
+		return strings.Join(parts[len(parts)-2:], "-")
 	}
 	return ""
+}
+
+func removeSrcRpmSuffix(sourceRpm string) string {
+	suffix := ".src.rpm"
+	sourceRpmLower := strings.ToLower(sourceRpm)
+	suffixLower := strings.ToLower(suffix)
+
+	if strings.HasSuffix(sourceRpmLower, suffixLower) {
+		return sourceRpm[:len(sourceRpm)-len(suffix)]
+	}
+	return sourceRpm
 }
 
 func getDistro(release *linux.Release) string {
