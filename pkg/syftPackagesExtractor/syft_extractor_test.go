@@ -131,16 +131,33 @@ func TestSyftExtractor(t *testing.T) {
 			t.Errorf("Error analyzing images: %v", err)
 		}
 
-		// Define expected values for the valid image
-		expectedValues := map[string]struct {
-			Layers         int
-			Packages       int
-			ImageLocations int
-		}{
-			"rabbitmq:3": {Layers: 9, Packages: 101, ImageLocations: 1},
+		// Expect 2 resolutions: one successful and one failed
+		assert.Equal(t, 2, len(resolutions), "Should have 2 resolutions (1 success, 1 failed)")
+
+		// Find and check the successful resolution
+		var successResolution *ContainerResolution
+		var failedResolution *ContainerResolution
+		for _, resolution := range resolutions {
+			if resolution.ContainerImage.Status == "Resolved" {
+				successResolution = resolution
+			} else if resolution.ContainerImage.Status == "Failed" {
+				failedResolution = resolution
+			}
 		}
 
-		checkResults(t, resolutions, expectedValues)
+		// Check the successful resolution
+		assert.NotNil(t, successResolution, "Should have one successful resolution")
+		assert.Equal(t, "rabbitmq:3", successResolution.ContainerImage.ImageId)
+		assert.Equal(t, 9, len(successResolution.ContainerImage.Layers))
+		assert.Equal(t, 101, len(successResolution.ContainerPackages))
+		assert.Equal(t, 1, len(successResolution.ContainerImage.ImageLocations))
+
+		// Check the failed resolution
+		assert.NotNil(t, failedResolution, "Should have one failed resolution")
+		assert.Equal(t, "Failed", failedResolution.ContainerImage.Status)
+		assert.NotEmpty(t, failedResolution.ContainerImage.ScanError)
+		assert.Equal(t, 0, len(failedResolution.ContainerPackages))
+		assert.Equal(t, 0, len(failedResolution.ContainerImage.Layers))
 	})
 }
 
