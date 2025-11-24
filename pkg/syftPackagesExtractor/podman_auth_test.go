@@ -268,6 +268,7 @@ func TestCreateRegistryCredentials(t *testing.T) {
 				if test.expected == nil {
 					assert.Nil(t, result)
 				} else {
+					// Results are now sorted by Authority, so we can compare directly
 					assert.Equal(t, len(test.expected), len(result))
 					for i, expected := range test.expected {
 						assert.Equal(t, expected.Authority, result[i].Authority)
