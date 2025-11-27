@@ -4,11 +4,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"github.com/anchore/stereoscope/pkg/image"
-	"github.com/rs/zerolog/log"
+	"sort"
+
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/anchore/stereoscope/pkg/image"
+	"github.com/rs/zerolog/log"
 )
 
 // PodmanAuth represents the structure of Podman's auth.json file
@@ -61,6 +64,7 @@ func ParseAuth(auth string) (string, string, error) {
 }
 
 // CreateRegistryCredentials creates RegistryCredentials from Podman auth.json
+// Returns credentials sorted by registry authority for deterministic output
 func CreateRegistryCredentials(authConfig *PodmanAuth) ([]image.RegistryCredentials, error) {
 	var credentials []image.RegistryCredentials
 
@@ -77,6 +81,12 @@ func CreateRegistryCredentials(authConfig *PodmanAuth) ([]image.RegistryCredenti
 			Password:  password,
 		})
 	}
+
+	// Sort credentials by Authority for deterministic output
+	sort.Slice(credentials, func(i, j int) bool {
+		return credentials[i].Authority < credentials[j].Authority
+	})
+
 	log.Debug().Msgf("podman credentials found: %v", len(credentials))
 
 	return credentials, nil

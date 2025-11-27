@@ -2,6 +2,7 @@ package syftPackagesExtractor
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/Checkmarx/containers-types/types"
@@ -130,16 +131,33 @@ func TestSyftExtractor(t *testing.T) {
 			t.Errorf("Error analyzing images: %v", err)
 		}
 
-		// Define expected values for the valid image
-		expectedValues := map[string]struct {
-			Layers         int
-			Packages       int
-			ImageLocations int
-		}{
-			"rabbitmq:3": {Layers: 9, Packages: 101, ImageLocations: 1},
+		// Expect 2 resolutions: one successful and one failed
+		assert.Equal(t, 2, len(resolutions), "Should have 2 resolutions (1 success, 1 failed)")
+
+		// Find and check the successful resolution
+		var successResolution *ContainerResolution
+		var failedResolution *ContainerResolution
+		for _, resolution := range resolutions {
+			if resolution.ContainerImage.Status == "Resolved" {
+				successResolution = resolution
+			} else if resolution.ContainerImage.Status == "Failed" {
+				failedResolution = resolution
+			}
 		}
 
-		checkResults(t, resolutions, expectedValues)
+		// Check the successful resolution
+		assert.NotNil(t, successResolution, "Should have one successful resolution")
+		assert.Equal(t, "rabbitmq:3", successResolution.ContainerImage.ImageId)
+		assert.Equal(t, 9, len(successResolution.ContainerImage.Layers))
+		assert.Equal(t, 101, len(successResolution.ContainerPackages))
+		assert.Equal(t, 1, len(successResolution.ContainerImage.ImageLocations))
+
+		// Check the failed resolution
+		assert.NotNil(t, failedResolution, "Should have one failed resolution")
+		assert.Equal(t, "Failed", failedResolution.ContainerImage.Status)
+		assert.NotEmpty(t, failedResolution.ContainerImage.ScanError)
+		assert.Equal(t, 0, len(failedResolution.ContainerPackages))
+		assert.Equal(t, 0, len(failedResolution.ContainerImage.Layers))
 	})
 }
 
@@ -193,6 +211,88 @@ func TestCycloneDxSBOMFieldOmittedWhenEmpty(t *testing.T) {
 	// Check that the cycloneDxSBOM field does not exist when empty
 	_, exists := result["cycloneDxSBOM"]
 	assert.False(t, exists, "cycloneDxSBOM field should not exist in JSON output when empty")
+}
+
+// TestUnresolvedImages tests that images that fail to resolve are included with "Failed" status
+func TestUnresolvedImages(t *testing.T) {
+	extractor := &syftPackagesExtractor{}
+
+	// Test with a mix of valid and invalid images
+	images := []types.ImageModel{
+		{Name: "nonexistent-private-registry.example.com/private-image:latest", ImageLocations: []types.ImageLocation{{Origin: types.DockerFileOrigin, Path: "/path/to/Dockerfile"}}},
+		{Name: "invalid-image-name-without-registry:tag", ImageLocations: []types.ImageLocation{{Origin: types.UserInput, Path: "None"}}},
+	}
+
+	resolutions, err := extractor.AnalyzeImages(images)
+	assert.NoError(t, err, "AnalyzeImages should not return an error even if individual images fail")
+	assert.Equal(t, 2, len(resolutions), "Should have 2 resolutions (both failed)")
+
+	// Check that all resolutions have "Failed" status in ContainerImage
+	for _, resolution := range resolutions {
+		assert.Equal(t, "Failed", resolution.ContainerImage.Status, "Failed images should have 'Failed' status in ContainerImage")
+		assert.NotEmpty(t, resolution.ContainerImage.ScanError, "Failed images should have a scan error in ContainerImage")
+		assert.Equal(t, 0, len(resolution.ContainerPackages), "Failed images should have no packages")
+		assert.Equal(t, 0, len(resolution.ContainerImage.Layers), "Failed images should have no layers")
+		assert.NotEmpty(t, resolution.ContainerImage.ImageName, "Failed images should still have image name")
+	}
+}
+
+// TestErrorMapping tests that Syft errors are correctly mapped to custom error messages
+func TestErrorMapping(t *testing.T) {
+	tests := []struct {
+		name          string
+		inputError    string
+		expectedError string
+	}{
+		{
+			name:          "TooManyRequests error",
+			inputError:    "error: toomanyrequests: exceeded rate limit",
+			expectedError: "Exceeded request limit to Docker Hub",
+		},
+		{
+			name:          "Could not parse reference error",
+			inputError:    "could not parse reference: invalid format at https://registry.example.com/v2/",
+			expectedError: "Unable to parse image name or tag. Registry: registry.example.com",
+		},
+		{
+			name:          "MANIFEST_UNKNOWN error",
+			inputError:    "GET https://index.docker.io/v2/library/nonexistent/manifests/latest: MANIFEST_UNKNOWN: manifest unknown",
+			expectedError: "The requested image is not found or is unavailable. Registry: index.docker.io",
+		},
+		{
+			name:          "Authentication is required error",
+			inputError:    "GET https://private-registry.example.com/v2/: authentication is required",
+			expectedError: "Retrieval from the private repository failed. Verify the credentials used for the integration. Registry: private-registry.example.com",
+		},
+		{
+			name:          "Unauthorized error",
+			inputError:    "GET https://registry.example.com/v2/library/image/manifests/tag: UNAUTHORIZED: authentication required",
+			expectedError: "Access to the image is restricted. Verify the repository permissions and credentials. Registry: registry.example.com",
+		},
+		{
+			name:          "No child with platform error",
+			inputError:    "no child with platform linux/amd64 found in manifest list",
+			expectedError: "The image is incompatible with the scanning tool. A Linux/AMD64 version is required.",
+		},
+		{
+			name:          "Unsupported MediaType error",
+			inputError:    "unsupported MediaType: application/vnd.oci.image.manifest.v1+json",
+			expectedError: "The image format is outdated and unsupported. You may need to update or rebuild the image.",
+		},
+		{
+			name:          "Generic error",
+			inputError:    "some random error that doesn't match any pattern",
+			expectedError: "Unexpected error occurred during image resolution",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := errors.New(tt.inputError)
+			result := mapErrorToCustomMessage(err)
+			assert.Contains(t, result, tt.expectedError, "Error message should contain expected text")
+		})
+	}
 }
 
 func checkResults(t *testing.T, resolutions []*ContainerResolution, expectedValues map[string]struct {
