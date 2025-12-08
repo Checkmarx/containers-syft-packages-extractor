@@ -1349,3 +1349,168 @@ func TestExtractImageNameAndTagFromOCIArchive(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeImageName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "Docker Hub official image with full path",
+			input:    "docker.io/library/alpine",
+			expected: "alpine",
+		},
+		{
+			name:     "Docker Hub official image with index.docker.io",
+			input:    "index.docker.io/library/nginx",
+			expected: "nginx",
+		},
+		{
+			name:     "Docker Hub user image",
+			input:    "docker.io/myuser/myimage",
+			expected: "myuser/myimage",
+		},
+		{
+			name:     "GHCR image",
+			input:    "ghcr.io/owner/repo",
+			expected: "owner/repo",
+		},
+		{
+			name:     "GCR image",
+			input:    "gcr.io/project/image",
+			expected: "project/image",
+		},
+		{
+			name:     "Quay.io image",
+			input:    "quay.io/repo/image",
+			expected: "repo/image",
+		},
+		{
+			name:     "Simple image name no change",
+			input:    "alpine",
+			expected: "alpine",
+		},
+		{
+			name:     "User image no change",
+			input:    "myuser/myimage",
+			expected: "myuser/myimage",
+		},
+		{
+			name:     "Library prefix only",
+			input:    "library/ubuntu",
+			expected: "ubuntu",
+		},
+		{
+			name:     "Custom registry not stripped",
+			input:    "myregistry.example.com/myimage",
+			expected: "myregistry.example.com/myimage",
+		},
+		{
+			name:     "Registry Hub Docker",
+			input:    "registry.hub.docker.com/library/redis",
+			expected: "redis",
+		},
+		{
+			name:     "GitLab registry",
+			input:    "registry.gitlab.com/group/project",
+			expected: "group/project",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := normalizeImageName(test.input)
+			assert.Equal(t, test.expected, result)
+		})
+	}
+}
+
+func TestExtractImageNameAndTagFromTar_WithNormalization(t *testing.T) {
+	// Test that extractImageNameAndTagFromTar correctly normalizes Podman-style full paths
+	tests := []struct {
+		name         string
+		manifestJSON string
+		expectedName string
+		expectedTag  string
+		expectError  bool
+	}{
+		{
+			name: "Podman-saved image with docker.io/library prefix",
+			manifestJSON: `[{
+				"RepoTags": ["docker.io/library/alpine:3.21.0"]
+			}]`,
+			expectedName: "alpine",
+			expectedTag:  "3.21.0",
+			expectError:  false,
+		},
+		{
+			name: "Podman-saved user image with docker.io prefix",
+			manifestJSON: `[{
+				"RepoTags": ["docker.io/myuser/myapp:latest"]
+			}]`,
+			expectedName: "myuser/myapp",
+			expectedTag:  "latest",
+			expectError:  false,
+		},
+		{
+			name: "Docker-saved image without prefix",
+			manifestJSON: `[{
+				"RepoTags": ["nginx:1.21"]
+			}]`,
+			expectedName: "nginx",
+			expectedTag:  "1.21",
+			expectError:  false,
+		},
+		{
+			name: "Image from ghcr.io",
+			manifestJSON: `[{
+				"RepoTags": ["ghcr.io/owner/repo:v1.0"]
+			}]`,
+			expectedName: "owner/repo",
+			expectedTag:  "v1.0",
+			expectError:  false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Create a temporary tar file with the test manifest
+			tmpFile, err := os.CreateTemp("", "test-*.tar")
+			if err != nil {
+				t.Fatalf("Failed to create temp file: %v", err)
+			}
+			defer os.Remove(tmpFile.Name())
+			defer tmpFile.Close()
+
+			// Create a tar writer
+			tarWriter := tar.NewWriter(tmpFile)
+
+			// Add manifest.json to the tar
+			manifestHeader := &tar.Header{
+				Name: "manifest.json",
+				Size: int64(len(test.manifestJSON)),
+				Mode: 0644,
+			}
+			if err := tarWriter.WriteHeader(manifestHeader); err != nil {
+				t.Fatalf("Failed to write tar header: %v", err)
+			}
+			if _, err := tarWriter.Write([]byte(test.manifestJSON)); err != nil {
+				t.Fatalf("Failed to write manifest data: %v", err)
+			}
+			tarWriter.Close()
+			tmpFile.Close()
+
+			// Test the extraction function
+			imageName, imageTag, err := extractImageNameAndTagFromTar(tmpFile.Name())
+
+			if test.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, test.expectedName, imageName)
+				assert.Equal(t, test.expectedTag, imageTag)
+			}
+		})
+	}
+}

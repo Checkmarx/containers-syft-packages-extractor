@@ -331,6 +331,12 @@ func extractImageNameAndTagFromTar(tarFilePath string) (string, string, error) {
 
 				imageName := repoTag[:lastColonIndex]
 				imageTag := repoTag[lastColonIndex+1:]
+
+				// Normalize the image name by removing registry prefix and library namespace
+				// Podman saves images with full path like "docker.io/library/alpine"
+				// We want to normalize this to just "alpine"
+				imageName = normalizeImageName(imageName)
+
 				return imageName, imageTag, nil
 			}
 		}
@@ -436,6 +442,47 @@ func extractImageNameFromFilename(filePath string) string {
 
 	// Otherwise, use the full filename (without extension)
 	return filename
+}
+
+// normalizeImageName removes registry prefix and library namespace from image names.
+// This is needed because Podman saves images with full paths like "docker.io/library/alpine"
+// while we want to display just "alpine".
+//
+// Examples:
+//   - "docker.io/library/alpine" -> "alpine"
+//   - "docker.io/myuser/myimage" -> "myuser/myimage"
+//   - "gcr.io/project/image" -> "project/image"
+//   - "alpine" -> "alpine" (no change)
+//   - "myuser/myimage" -> "myuser/myimage" (no change)
+func normalizeImageName(imageName string) string {
+	// Known registry prefixes to strip
+	registryPrefixes := []string{
+		"docker.io/",
+		"index.docker.io/",
+		"registry.hub.docker.com/",
+		"ghcr.io/",
+		"gcr.io/",
+		"quay.io/",
+		"registry.gitlab.com/",
+	}
+
+	normalized := imageName
+
+	// Strip known registry prefixes
+	for _, prefix := range registryPrefixes {
+		if strings.HasPrefix(normalized, prefix) {
+			normalized = strings.TrimPrefix(normalized, prefix)
+			break
+		}
+	}
+
+	// Strip "library/" prefix (Docker Hub's default namespace for official images)
+	// Only strip if it's at the beginning after removing registry prefix
+	if strings.HasPrefix(normalized, "library/") {
+		normalized = strings.TrimPrefix(normalized, "library/")
+	}
+
+	return normalized
 }
 
 // createEmptyContainerResolution returns an empty ContainerResolution
