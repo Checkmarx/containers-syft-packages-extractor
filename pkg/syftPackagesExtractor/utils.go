@@ -331,6 +331,12 @@ func extractImageNameAndTagFromTar(tarFilePath string) (string, string, error) {
 
 				imageName := repoTag[:lastColonIndex]
 				imageTag := repoTag[lastColonIndex+1:]
+
+				// Normalize the image name by removing registry prefix and library namespace
+				// Podman saves images with full path like "docker.io/library/alpine"
+				// We want to normalize this to just "alpine"
+				imageName = normalizeImageName(imageName)
+
 				return imageName, imageTag, nil
 			}
 		}
@@ -436,6 +442,45 @@ func extractImageNameFromFilename(filePath string) string {
 
 	// Otherwise, use the full filename (without extension)
 	return filename
+}
+
+// normalizeImageName removes Docker Hub registry prefix and library namespace from image names.
+// This is needed because Podman saves images with full paths like "docker.io/library/alpine"
+// while we want to display just "alpine".
+//
+// Only Docker Hub prefixes are removed; other registry prefixes (ghcr.io, gcr.io, etc.) are preserved.
+//
+// Examples:
+//   - "docker.io/library/alpine" -> "alpine"
+//   - "docker.io/myuser/myimage" -> "myuser/myimage"
+//   - "index.docker.io/library/nginx" -> "nginx"
+//   - "ghcr.io/owner/repo" -> "ghcr.io/owner/repo" (preserved)
+//   - "gcr.io/project/image" -> "gcr.io/project/image" (preserved)
+//   - "alpine" -> "alpine" (no change)
+//   - "myuser/myimage" -> "myuser/myimage" (no change)
+func normalizeImageName(imageName string) string {
+	normalized := imageName
+
+	// Only remove Docker Hub prefixes
+	dockerHubPrefixes := []string{
+		"docker.io/",
+		"index.docker.io/",
+		"registry.hub.docker.com/",
+	}
+
+	for _, prefix := range dockerHubPrefixes {
+		if strings.HasPrefix(normalized, prefix) {
+			normalized = strings.TrimPrefix(normalized, prefix)
+			break
+		}
+	}
+
+	// Strip "library/" prefix (Docker Hub's default namespace for official images)
+	if strings.HasPrefix(normalized, "library/") {
+		normalized = strings.TrimPrefix(normalized, "library/")
+	}
+
+	return normalized
 }
 
 // createEmptyContainerResolution returns an empty ContainerResolution

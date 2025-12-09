@@ -1349,3 +1349,262 @@ func TestExtractImageNameAndTagFromOCIArchive(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeImageName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		// Docker Hub prefixes - should be removed
+		{
+			name:     "Docker Hub official image with full path",
+			input:    "docker.io/library/alpine",
+			expected: "alpine",
+		},
+		{
+			name:     "Docker Hub official image with index.docker.io",
+			input:    "index.docker.io/library/nginx",
+			expected: "nginx",
+		},
+		{
+			name:     "Docker Hub user image",
+			input:    "docker.io/myuser/myimage",
+			expected: "myuser/myimage",
+		},
+		{
+			name:     "Registry Hub Docker",
+			input:    "registry.hub.docker.com/library/redis",
+			expected: "redis",
+		},
+		// Other registries - should be preserved
+		{
+			name:     "GHCR image preserved",
+			input:    "ghcr.io/owner/repo",
+			expected: "ghcr.io/owner/repo",
+		},
+		{
+			name:     "GCR image preserved",
+			input:    "gcr.io/project/image",
+			expected: "gcr.io/project/image",
+		},
+		{
+			name:     "Quay.io image preserved",
+			input:    "quay.io/repo/image",
+			expected: "quay.io/repo/image",
+		},
+		{
+			name:     "GitLab registry preserved",
+			input:    "registry.gitlab.com/group/project",
+			expected: "registry.gitlab.com/group/project",
+		},
+		{
+			name:     "Custom registry preserved",
+			input:    "myregistry.example.com/myimage",
+			expected: "myregistry.example.com/myimage",
+		},
+		{
+			name:     "Registry with port preserved",
+			input:    "myregistry:5000/myimage",
+			expected: "myregistry:5000/myimage",
+		},
+		{
+			name:     "Localhost registry preserved",
+			input:    "localhost/myimage",
+			expected: "localhost/myimage",
+		},
+		{
+			name:     "Amazon ECR preserved",
+			input:    "123456789012.dkr.ecr.us-east-1.amazonaws.com/myimage",
+			expected: "123456789012.dkr.ecr.us-east-1.amazonaws.com/myimage",
+		},
+		{
+			name:     "Azure ACR preserved",
+			input:    "myregistry.azurecr.io/myimage",
+			expected: "myregistry.azurecr.io/myimage",
+		},
+		{
+			name:     "Google Artifact Registry preserved",
+			input:    "us-docker.pkg.dev/my-project/my-repo/myimage",
+			expected: "us-docker.pkg.dev/my-project/my-repo/myimage",
+		},
+		{
+			name:     "Harbor registry preserved",
+			input:    "harbor.mycompany.com/library/nginx",
+			expected: "harbor.mycompany.com/library/nginx",
+		},
+		{
+			name:     "JFrog Artifactory preserved",
+			input:    "mycompany.jfrog.io/docker-local/myimage",
+			expected: "mycompany.jfrog.io/docker-local/myimage",
+		},
+		{
+			name:     "DigitalOcean registry preserved",
+			input:    "registry.digitalocean.com/myregistry/myimage",
+			expected: "registry.digitalocean.com/myregistry/myimage",
+		},
+		{
+			name:     "Nexus registry preserved",
+			input:    "nexus.mycompany.com:8443/repository/docker/myimage",
+			expected: "nexus.mycompany.com:8443/repository/docker/myimage",
+		},
+		// Simple image names - no change
+		{
+			name:     "Simple image name no change",
+			input:    "alpine",
+			expected: "alpine",
+		},
+		{
+			name:     "User image no change",
+			input:    "myuser/myimage",
+			expected: "myuser/myimage",
+		},
+		{
+			name:     "Library prefix stripped",
+			input:    "library/ubuntu",
+			expected: "ubuntu",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := normalizeImageName(test.input)
+			assert.Equal(t, test.expected, result)
+		})
+	}
+}
+
+func TestExtractImageNameAndTagFromTar_WithNormalization(t *testing.T) {
+	// Test that extractImageNameAndTagFromTar correctly normalizes Podman-style full paths
+	// Only docker.io prefix should be removed; other registries should be preserved
+	tests := []struct {
+		name         string
+		manifestJSON string
+		expectedName string
+		expectedTag  string
+		expectError  bool
+	}{
+		{
+			name: "Podman-saved image with docker.io/library prefix",
+			manifestJSON: `[{
+				"RepoTags": ["docker.io/library/alpine:3.21.0"]
+			}]`,
+			expectedName: "alpine",
+			expectedTag:  "3.21.0",
+			expectError:  false,
+		},
+		{
+			name: "Podman-saved user image with docker.io prefix",
+			manifestJSON: `[{
+				"RepoTags": ["docker.io/myuser/myapp:latest"]
+			}]`,
+			expectedName: "myuser/myapp",
+			expectedTag:  "latest",
+			expectError:  false,
+		},
+		{
+			name: "Docker-saved image without prefix",
+			manifestJSON: `[{
+				"RepoTags": ["nginx:1.21"]
+			}]`,
+			expectedName: "nginx",
+			expectedTag:  "1.21",
+			expectError:  false,
+		},
+		{
+			name: "Image from ghcr.io - registry preserved",
+			manifestJSON: `[{
+				"RepoTags": ["ghcr.io/owner/repo:v1.0"]
+			}]`,
+			expectedName: "ghcr.io/owner/repo",
+			expectedTag:  "v1.0",
+			expectError:  false,
+		},
+		{
+			name: "Image from gcr.io - registry preserved",
+			manifestJSON: `[{
+				"RepoTags": ["gcr.io/my-project/myimage:latest"]
+			}]`,
+			expectedName: "gcr.io/my-project/myimage",
+			expectedTag:  "latest",
+			expectError:  false,
+		},
+		{
+			name: "Image from quay.io - registry preserved",
+			manifestJSON: `[{
+				"RepoTags": ["quay.io/myorg/myimage:v2.0"]
+			}]`,
+			expectedName: "quay.io/myorg/myimage",
+			expectedTag:  "v2.0",
+			expectError:  false,
+		},
+		{
+			name: "Image from Amazon ECR - registry preserved",
+			manifestJSON: `[{
+				"RepoTags": ["123456789012.dkr.ecr.us-east-1.amazonaws.com/myapp:1.0.0"]
+			}]`,
+			expectedName: "123456789012.dkr.ecr.us-east-1.amazonaws.com/myapp",
+			expectedTag:  "1.0.0",
+			expectError:  false,
+		},
+		{
+			name: "Image from Azure ACR - registry preserved",
+			manifestJSON: `[{
+				"RepoTags": ["myregistry.azurecr.io/samples/myimage:latest"]
+			}]`,
+			expectedName: "myregistry.azurecr.io/samples/myimage",
+			expectedTag:  "latest",
+			expectError:  false,
+		},
+		{
+			name: "Image from private registry with port - preserved",
+			manifestJSON: `[{
+				"RepoTags": ["myregistry.local:5000/myimage:dev"]
+			}]`,
+			expectedName: "myregistry.local:5000/myimage",
+			expectedTag:  "dev",
+			expectError:  false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Create a temporary tar file with the test manifest
+			tmpFile, err := os.CreateTemp("", "test-*.tar")
+			if err != nil {
+				t.Fatalf("Failed to create temp file: %v", err)
+			}
+			defer os.Remove(tmpFile.Name())
+			defer tmpFile.Close()
+
+			// Create a tar writer
+			tarWriter := tar.NewWriter(tmpFile)
+
+			// Add manifest.json to the tar
+			manifestHeader := &tar.Header{
+				Name: "manifest.json",
+				Size: int64(len(test.manifestJSON)),
+				Mode: 0644,
+			}
+			if err := tarWriter.WriteHeader(manifestHeader); err != nil {
+				t.Fatalf("Failed to write tar header: %v", err)
+			}
+			if _, err := tarWriter.Write([]byte(test.manifestJSON)); err != nil {
+				t.Fatalf("Failed to write manifest data: %v", err)
+			}
+			tarWriter.Close()
+			tmpFile.Close()
+
+			// Test the extraction function
+			imageName, imageTag, err := extractImageNameAndTagFromTar(tmpFile.Name())
+
+			if test.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, test.expectedName, imageName)
+				assert.Equal(t, test.expectedTag, imageTag)
+			}
+		})
+	}
+}
