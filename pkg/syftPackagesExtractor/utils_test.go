@@ -1423,6 +1423,31 @@ func TestNormalizeImageName(t *testing.T) {
 			input:    "myregistry.azurecr.io/myimage",
 			expected: "myregistry.azurecr.io/myimage",
 		},
+		{
+			name:     "Google Artifact Registry preserved",
+			input:    "us-docker.pkg.dev/my-project/my-repo/myimage",
+			expected: "us-docker.pkg.dev/my-project/my-repo/myimage",
+		},
+		{
+			name:     "Harbor registry preserved",
+			input:    "harbor.mycompany.com/library/nginx",
+			expected: "harbor.mycompany.com/library/nginx",
+		},
+		{
+			name:     "JFrog Artifactory preserved",
+			input:    "mycompany.jfrog.io/docker-local/myimage",
+			expected: "mycompany.jfrog.io/docker-local/myimage",
+		},
+		{
+			name:     "DigitalOcean registry preserved",
+			input:    "registry.digitalocean.com/myregistry/myimage",
+			expected: "registry.digitalocean.com/myregistry/myimage",
+		},
+		{
+			name:     "Nexus registry preserved",
+			input:    "nexus.mycompany.com:8443/repository/docker/myimage",
+			expected: "nexus.mycompany.com:8443/repository/docker/myimage",
+		},
 		// Simple image names - no change
 		{
 			name:     "Simple image name no change",
@@ -1502,6 +1527,42 @@ func TestExtractImageNameAndTagFromTar_WithNormalization(t *testing.T) {
 			}]`,
 			expectedName: "gcr.io/my-project/myimage",
 			expectedTag:  "latest",
+			expectError:  false,
+		},
+		{
+			name: "Image from quay.io - registry preserved",
+			manifestJSON: `[{
+				"RepoTags": ["quay.io/myorg/myimage:v2.0"]
+			}]`,
+			expectedName: "quay.io/myorg/myimage",
+			expectedTag:  "v2.0",
+			expectError:  false,
+		},
+		{
+			name: "Image from Amazon ECR - registry preserved",
+			manifestJSON: `[{
+				"RepoTags": ["123456789012.dkr.ecr.us-east-1.amazonaws.com/myapp:1.0.0"]
+			}]`,
+			expectedName: "123456789012.dkr.ecr.us-east-1.amazonaws.com/myapp",
+			expectedTag:  "1.0.0",
+			expectError:  false,
+		},
+		{
+			name: "Image from Azure ACR - registry preserved",
+			manifestJSON: `[{
+				"RepoTags": ["myregistry.azurecr.io/samples/myimage:latest"]
+			}]`,
+			expectedName: "myregistry.azurecr.io/samples/myimage",
+			expectedTag:  "latest",
+			expectError:  false,
+		},
+		{
+			name: "Image from private registry with port - preserved",
+			manifestJSON: `[{
+				"RepoTags": ["myregistry.local:5000/myimage:dev"]
+			}]`,
+			expectedName: "myregistry.local:5000/myimage",
+			expectedTag:  "dev",
 			expectError:  false,
 		},
 	}
