@@ -1402,9 +1402,9 @@ func TestNormalizeImageName(t *testing.T) {
 			expected: "ubuntu",
 		},
 		{
-			name:     "Custom registry not stripped",
+			name:     "Custom registry with domain",
 			input:    "myregistry.example.com/myimage",
-			expected: "myregistry.example.com/myimage",
+			expected: "myimage",
 		},
 		{
 			name:     "Registry Hub Docker",
@@ -1415,6 +1415,46 @@ func TestNormalizeImageName(t *testing.T) {
 			name:     "GitLab registry",
 			input:    "registry.gitlab.com/group/project",
 			expected: "group/project",
+		},
+		{
+			name:     "Registry with port",
+			input:    "myregistry:5000/myimage",
+			expected: "myimage",
+		},
+		{
+			name:     "Registry with domain and port",
+			input:    "myregistry.local:5000/namespace/myimage",
+			expected: "namespace/myimage",
+		},
+		{
+			name:     "Localhost registry",
+			input:    "localhost/myimage",
+			expected: "myimage",
+		},
+		{
+			name:     "Localhost registry with port",
+			input:    "localhost:5000/myimage",
+			expected: "myimage",
+		},
+		{
+			name:     "Amazon ECR",
+			input:    "123456789012.dkr.ecr.us-east-1.amazonaws.com/myimage",
+			expected: "myimage",
+		},
+		{
+			name:     "Azure ACR",
+			input:    "myregistry.azurecr.io/myimage",
+			expected: "myimage",
+		},
+		{
+			name:     "Google Artifact Registry",
+			input:    "us-docker.pkg.dev/project/repo/image",
+			expected: "project/repo/image",
+		},
+		{
+			name:     "Nested namespace after registry",
+			input:    "gcr.io/my-project/subdir/image",
+			expected: "my-project/subdir/image",
 		},
 	}
 

@@ -448,36 +448,31 @@ func extractImageNameFromFilename(filePath string) string {
 // This is needed because Podman saves images with full paths like "docker.io/library/alpine"
 // while we want to display just "alpine".
 //
+// The function dynamically detects registry prefixes by checking if the first path segment
+// looks like a hostname (contains "." or ":" or is "localhost").
+//
 // Examples:
 //   - "docker.io/library/alpine" -> "alpine"
 //   - "docker.io/myuser/myimage" -> "myuser/myimage"
 //   - "gcr.io/project/image" -> "project/image"
+//   - "myregistry.example.com:5000/myimage" -> "myimage"
+//   - "localhost/myimage" -> "myimage"
 //   - "alpine" -> "alpine" (no change)
 //   - "myuser/myimage" -> "myuser/myimage" (no change)
 func normalizeImageName(imageName string) string {
-	// Known registry prefixes to strip
-	registryPrefixes := []string{
-		"docker.io/",
-		"index.docker.io/",
-		"registry.hub.docker.com/",
-		"ghcr.io/",
-		"gcr.io/",
-		"quay.io/",
-		"registry.gitlab.com/",
-	}
-
 	normalized := imageName
 
-	// Strip known registry prefixes
-	for _, prefix := range registryPrefixes {
-		if strings.HasPrefix(normalized, prefix) {
-			normalized = strings.TrimPrefix(normalized, prefix)
-			break
+	// Check if the first segment looks like a registry hostname
+	// (contains a dot or port, e.g., "docker.io", "registry:5000", "gcr.io")
+	if idx := strings.Index(normalized, "/"); idx != -1 {
+		firstSegment := normalized[:idx]
+		// If first segment contains "." or ":" or is "localhost", it's a registry
+		if strings.Contains(firstSegment, ".") || strings.Contains(firstSegment, ":") || firstSegment == "localhost" {
+			normalized = normalized[idx+1:]
 		}
 	}
 
 	// Strip "library/" prefix (Docker Hub's default namespace for official images)
-	// Only strip if it's at the beginning after removing registry prefix
 	if strings.HasPrefix(normalized, "library/") {
 		normalized = strings.TrimPrefix(normalized, "library/")
 	}
