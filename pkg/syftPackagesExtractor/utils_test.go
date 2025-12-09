@@ -1356,6 +1356,7 @@ func TestNormalizeImageName(t *testing.T) {
 		input    string
 		expected string
 	}{
+		// Docker Hub prefixes - should be removed
 		{
 			name:     "Docker Hub official image with full path",
 			input:    "docker.io/library/alpine",
@@ -1372,20 +1373,57 @@ func TestNormalizeImageName(t *testing.T) {
 			expected: "myuser/myimage",
 		},
 		{
-			name:     "GHCR image",
+			name:     "Registry Hub Docker",
+			input:    "registry.hub.docker.com/library/redis",
+			expected: "redis",
+		},
+		// Other registries - should be preserved
+		{
+			name:     "GHCR image preserved",
 			input:    "ghcr.io/owner/repo",
-			expected: "owner/repo",
+			expected: "ghcr.io/owner/repo",
 		},
 		{
-			name:     "GCR image",
+			name:     "GCR image preserved",
 			input:    "gcr.io/project/image",
-			expected: "project/image",
+			expected: "gcr.io/project/image",
 		},
 		{
-			name:     "Quay.io image",
+			name:     "Quay.io image preserved",
 			input:    "quay.io/repo/image",
-			expected: "repo/image",
+			expected: "quay.io/repo/image",
 		},
+		{
+			name:     "GitLab registry preserved",
+			input:    "registry.gitlab.com/group/project",
+			expected: "registry.gitlab.com/group/project",
+		},
+		{
+			name:     "Custom registry preserved",
+			input:    "myregistry.example.com/myimage",
+			expected: "myregistry.example.com/myimage",
+		},
+		{
+			name:     "Registry with port preserved",
+			input:    "myregistry:5000/myimage",
+			expected: "myregistry:5000/myimage",
+		},
+		{
+			name:     "Localhost registry preserved",
+			input:    "localhost/myimage",
+			expected: "localhost/myimage",
+		},
+		{
+			name:     "Amazon ECR preserved",
+			input:    "123456789012.dkr.ecr.us-east-1.amazonaws.com/myimage",
+			expected: "123456789012.dkr.ecr.us-east-1.amazonaws.com/myimage",
+		},
+		{
+			name:     "Azure ACR preserved",
+			input:    "myregistry.azurecr.io/myimage",
+			expected: "myregistry.azurecr.io/myimage",
+		},
+		// Simple image names - no change
 		{
 			name:     "Simple image name no change",
 			input:    "alpine",
@@ -1397,64 +1435,9 @@ func TestNormalizeImageName(t *testing.T) {
 			expected: "myuser/myimage",
 		},
 		{
-			name:     "Library prefix only",
+			name:     "Library prefix stripped",
 			input:    "library/ubuntu",
 			expected: "ubuntu",
-		},
-		{
-			name:     "Custom registry with domain",
-			input:    "myregistry.example.com/myimage",
-			expected: "myimage",
-		},
-		{
-			name:     "Registry Hub Docker",
-			input:    "registry.hub.docker.com/library/redis",
-			expected: "redis",
-		},
-		{
-			name:     "GitLab registry",
-			input:    "registry.gitlab.com/group/project",
-			expected: "group/project",
-		},
-		{
-			name:     "Registry with port",
-			input:    "myregistry:5000/myimage",
-			expected: "myimage",
-		},
-		{
-			name:     "Registry with domain and port",
-			input:    "myregistry.local:5000/namespace/myimage",
-			expected: "namespace/myimage",
-		},
-		{
-			name:     "Localhost registry",
-			input:    "localhost/myimage",
-			expected: "myimage",
-		},
-		{
-			name:     "Localhost registry with port",
-			input:    "localhost:5000/myimage",
-			expected: "myimage",
-		},
-		{
-			name:     "Amazon ECR",
-			input:    "123456789012.dkr.ecr.us-east-1.amazonaws.com/myimage",
-			expected: "myimage",
-		},
-		{
-			name:     "Azure ACR",
-			input:    "myregistry.azurecr.io/myimage",
-			expected: "myimage",
-		},
-		{
-			name:     "Google Artifact Registry",
-			input:    "us-docker.pkg.dev/project/repo/image",
-			expected: "project/repo/image",
-		},
-		{
-			name:     "Nested namespace after registry",
-			input:    "gcr.io/my-project/subdir/image",
-			expected: "my-project/subdir/image",
 		},
 	}
 
@@ -1468,6 +1451,7 @@ func TestNormalizeImageName(t *testing.T) {
 
 func TestExtractImageNameAndTagFromTar_WithNormalization(t *testing.T) {
 	// Test that extractImageNameAndTagFromTar correctly normalizes Podman-style full paths
+	// Only docker.io prefix should be removed; other registries should be preserved
 	tests := []struct {
 		name         string
 		manifestJSON string
@@ -1503,12 +1487,21 @@ func TestExtractImageNameAndTagFromTar_WithNormalization(t *testing.T) {
 			expectError:  false,
 		},
 		{
-			name: "Image from ghcr.io",
+			name: "Image from ghcr.io - registry preserved",
 			manifestJSON: `[{
 				"RepoTags": ["ghcr.io/owner/repo:v1.0"]
 			}]`,
-			expectedName: "owner/repo",
+			expectedName: "ghcr.io/owner/repo",
 			expectedTag:  "v1.0",
+			expectError:  false,
+		},
+		{
+			name: "Image from gcr.io - registry preserved",
+			manifestJSON: `[{
+				"RepoTags": ["gcr.io/my-project/myimage:latest"]
+			}]`,
+			expectedName: "gcr.io/my-project/myimage",
+			expectedTag:  "latest",
 			expectError:  false,
 		},
 	}
