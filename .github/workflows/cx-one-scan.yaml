@@ -1,0 +1,32 @@
+name: cx-one-scan
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '20 7 * * 0-4' # 7:20 AM UTC, Sunday to Thursday
+
+jobs:
+  cx-one-scan:
+    name: cx-one-scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+
+      - name: cx-one-scan
+        uses: checkmarx/ast-github-action@9fda4ab4c1b67c35de380552a972a82997d97731 # 2.0.42
+        with:
+          base_uri: ${{ secrets.AST_RND_SCANS_BASE_URI }}
+          cx_tenant: ${{ secrets.AST_RND_SCANS_TENANT }}
+          cx_client_id: ${{ secrets.AST_RND_SCANS_CLIENT_ID }}
+          cx_client_secret: ${{ secrets.AST_RND_SCANS_CLIENT_SECRET }}
+          additional_params: --tags containers-syft-packages-extractor --scan-timeout 60 --scan-types sast,sca,iac-security --threshold "sca-critical=1;sca-high=1;sca-medium=1;sca-low=1; sast-critical=1;sast-high=1;sast-medium=1;sast-low=1; iac-security-critical=1;iac-security-high=1;iac-security-medium=1;iac-security-low=1"
+
+ 
