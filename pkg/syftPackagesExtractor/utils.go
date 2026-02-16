@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -530,16 +531,18 @@ func extractImageNameAndTagFromOCIDir(ociDirPath string) (string, string, error)
 	cleanPath := strings.TrimPrefix(ociDirPath, ociDirPrefix)
 	cleanPath = strings.TrimSpace(cleanPath)
 
+	// Normalize backslashes to forward slashes for cross-platform support
+	normalizedPath := strings.ReplaceAll(cleanPath, "\\", "/")
+
 	// Extract the folder name as the image name
 	// For example: "docker.io/library/alpine" -> "alpine"
-	imageName := cleanPath
-	if strings.Contains(cleanPath, "/") {
-		parts := strings.Split(cleanPath, "/")
-		imageName = parts[len(parts)-1] // Get the last part
-	}
+	imageName := filepath.Base(normalizedPath)
+
+	// Normalize the image name (strip docker.io/library/ etc.)
+	imageName = normalizeImageName(imageName)
 
 	// Read the index.json file to get the tag from annotations
-	indexPath := fmt.Sprintf("%s/index.json", cleanPath)
+	indexPath := filepath.Join(cleanPath, "index.json")
 	indexData, err := os.ReadFile(indexPath)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to read index.json from OCI directory %s: %w", cleanPath, err)
