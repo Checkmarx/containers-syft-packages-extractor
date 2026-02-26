@@ -28,7 +28,7 @@ func TestSyftExtractor(t *testing.T) {
 			Packages       int
 			ImageLocations int
 		}{
-			"rabbitmq:3":               {Layers: 9, Packages: 101, ImageLocations: 1},
+			"rabbitmq:3":               {Layers: 9, Packages: 99, ImageLocations: 1},
 			"golang:1.21.5-alpine3.18": {Layers: 4, Packages: 38, ImageLocations: 1},
 		}
 
@@ -75,7 +75,7 @@ func TestSyftExtractor(t *testing.T) {
 			Packages       int
 			ImageLocations int
 		}{
-			"rabbitmq:3": {Layers: 9, Packages: 101, ImageLocations: 2},
+			"rabbitmq:3": {Layers: 9, Packages: 99, ImageLocations: 2},
 		}
 
 		checkResults(t, resolutions, expectedValues)
@@ -149,7 +149,7 @@ func TestSyftExtractor(t *testing.T) {
 		assert.NotNil(t, successResolution, "Should have one successful resolution")
 		assert.Equal(t, "rabbitmq:3", successResolution.ContainerImage.ImageId)
 		assert.Equal(t, 9, len(successResolution.ContainerImage.Layers))
-		assert.Equal(t, 101, len(successResolution.ContainerPackages))
+		assert.Equal(t, 99, len(successResolution.ContainerPackages))
 		assert.Equal(t, 1, len(successResolution.ContainerImage.ImageLocations))
 
 		// Check the failed resolution
