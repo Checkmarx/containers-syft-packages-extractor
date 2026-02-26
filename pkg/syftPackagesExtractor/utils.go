@@ -15,6 +15,7 @@ import (
 	"github.com/anchore/stereoscope"
 	"github.com/anchore/stereoscope/pkg/image"
 	"github.com/anchore/syft/syft"
+	"github.com/anchore/syft/syft/artifact"
 	"github.com/anchore/syft/syft/file"
 	"github.com/anchore/syft/syft/format"
 	"github.com/anchore/syft/syft/format/syftjson"
@@ -646,7 +647,7 @@ func transformSBOMToContainerResolution(s sbom.SBOM, imageModel types.ImageModel
 	distro := getDistro(s.Artifacts.LinuxDistribution)
 
 	extractImage(distro, imageModel, sourceMetadata, imageName, imageTag, &imageResult)
-	extractImagePackages(s.Artifacts.Packages, distro, &imageResult)
+	extractImagePackages(s.Artifacts.Packages, s.Relationships, distro, &imageResult)
 
 	return imageResult
 }
@@ -671,11 +672,12 @@ func extractImage(distro string, imageModel types.ImageModel, sourceMetadata sou
 	}
 }
 
-func extractImagePackages(packages *pkg.Collection, distro string, result *ContainerResolution) {
+func extractImagePackages(packages *pkg.Collection, relationships []artifact.Relationship, distro string, result *ContainerResolution) {
 
 	var containerPackages []ContainerPackage
 
 	syftArtifacts := getSyftArtifactsWithoutUnsupportedTypesDuplications(packages)
+	syftArtifacts = filterOwnedLanguagePackages(syftArtifacts, packages, relationships)
 
 	for _, containerPackage := range syftArtifacts {
 
@@ -694,6 +696,63 @@ func extractImagePackages(packages *pkg.Collection, distro string, result *Conta
 	}
 
 	result.ContainerPackages = containerPackages
+}
+
+var osPackageTypes = map[pkg.Type]bool{
+	pkg.ApkPkg: true,
+	pkg.DebPkg: true,
+	pkg.RpmPkg: true,
+}
+
+// filterOwnedLanguagePackages removes language-level packages (e.g. pip, npm) that are owned by
+// an OS package (RPM/APK/DPKG) via syft's ownership-by-file-overlap relationships. These packages
+// are installed by the OS package manager and should only be matched via OVAL advisories (which
+// respect vendor backporting), not via upstream language-level vulnerability databases which cause
+// false positives.
+func filterOwnedLanguagePackages(artifacts []pkg.Package, allPackages *pkg.Collection, relationships []artifact.Relationship) []pkg.Package {
+	if len(relationships) == 0 {
+		return artifacts
+	}
+
+	pkgLookup := make(map[artifact.ID]pkg.Package)
+	for p := range allPackages.Enumerate() {
+		pkgLookup[p.ID()] = p
+	}
+
+	ownedChildIDs := make(map[artifact.ID]bool)
+	for _, rel := range relationships {
+		if rel.Type != artifact.OwnershipByFileOverlapRelationship {
+			continue
+		}
+
+		parentPkg, ok := pkgLookup[rel.From.ID()]
+		if !ok {
+			continue
+		}
+
+		if !osPackageTypes[parentPkg.Type] {
+			continue
+		}
+
+		ownedChildIDs[rel.To.ID()] = true
+		log.Info().Msgf("Filtered language package '%s %s' (type: %s) — owned by OS package '%s %s' (type: %s) via ownership-by-file-overlap",
+			pkgLookup[rel.To.ID()].Name, pkgLookup[rel.To.ID()].Version, pkgLookup[rel.To.ID()].Type,
+			parentPkg.Name, parentPkg.Version, parentPkg.Type)
+	}
+
+	if len(ownedChildIDs) == 0 {
+		return artifacts
+	}
+
+	var filtered []pkg.Package
+	for _, a := range artifacts {
+		if !ownedChildIDs[a.ID()] {
+			filtered = append(filtered, a)
+		}
+	}
+
+	log.Info().Msgf("Filtered %d language packages owned by OS packages via ownership-by-file-overlap", len(ownedChildIDs))
+	return filtered
 }
 
 func extractPackageName(pack pkg.Package) string {
