@@ -1,16 +1,73 @@
 name: Dependabot Auto-Merge
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
-  check_suite:
-    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
 
 jobs:
-  dependabot-auto-merge:
-    uses: Checkmarx-Containers/containers-github-actions-workflows/.github/workflows/dependabot-auto-merge.yml@main
-    with:
-      service-name: ${{ github.event.repository.name }}
-      timeout-seconds: 2700
-      auto-merge-major: true
-    secrets: inherit
+  auto-merge:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    steps:
+      - name: Fetch dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@d7267f607e9d3fb96fc2fbe83e0af444713e90b7 # v2.3.0
+        with:
+          github-token: ${{ github.token }}
+
+      - name: Wait for required checks
+        run: |
+          MAX_ATTEMPTS=60
+          SLEEP_SECONDS=30
+
+          IFS=',' read -ra CHECKS <<< "$REQUIRED_CHECKS"
+
+          for check in "${CHECKS[@]}"; do
+            check=$(echo "$check" | xargs)
+            echo "Waiting for check: '$check'"
+            attempts=0
+            while [ $attempts -lt $MAX_ATTEMPTS ]; do
+              conclusion=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs" \
+                --jq ".check_runs[] | select(.name == \"$check\") | .conclusion" 2>/dev/null | head -1)
+              status=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs" \
+                --jq ".check_runs[] | select(.name == \"$check\") | .status" 2>/dev/null | head -1)
+
+              if [ "$conclusion" = "success" ] || [ "$conclusion" = "skipped" ] || [ "$conclusion" = "neutral" ]; then
+                echo "✅ Check '$check' passed ($conclusion)"
+                break
+              elif [ "$conclusion" = "failure" ] || [ "$conclusion" = "cancelled" ]; then
+                echo "❌ Check '$check' failed ($conclusion) — aborting"
+                exit 1
+              else
+                echo "⏳ Check '$check' status=${status:-pending}, conclusion=${conclusion:-none} (attempt $((attempts+1))/$MAX_ATTEMPTS)"
+                sleep $SLEEP_SECONDS
+                attempts=$((attempts + 1))
+              fi
+            done
+            if [ $attempts -eq $MAX_ATTEMPTS ]; then
+              echo "⏰ Timed out waiting for check '$check'"
+              exit 1
+            fi
+          done
+          echo "✅ All required checks passed"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REQUIRED_CHECKS: "unit-tests,validate_jira_key"
+
+      - name: Auto-approve PR
+        run: gh pr review "$PR_NUMBER" --approve --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+
+      - name: Merge PR
+        run: gh pr merge "$PR_NUMBER" --squash --delete-branch --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
