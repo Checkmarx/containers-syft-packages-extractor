@@ -1,0 +1,16 @@
+name: Dependabot Auto-Merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  check_suite:
+    types: [completed]
+
+jobs:
+  dependabot-auto-merge:
+    uses: Checkmarx-Containers/containers-github-actions-workflows/.github/workflows/dependabot-auto-merge.yml@main
+    with:
+      service-name: ${{ github.event.repository.name }}
+      timeout-seconds: 2700
+      auto-merge-major: true
+    secrets: inherit
