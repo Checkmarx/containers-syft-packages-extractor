@@ -1,0 +1,61 @@
+name: Dependabot Rebase Conflicts
+
+# Triggers:
+# 1. push to main   — a new commit may cause existing Dependabot PRs to conflict.
+# 2. schedule       — daily safety-net to catch anything missed by the push trigger.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 8 * * *" # 08:00 UTC, after Dependabot's daily 06:00 run
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  rebase-conflicts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rebase conflicting Dependabot PRs
+        run: |
+          # GitHub computes mergeability asynchronously after a push — PRs may briefly
+          # show UNKNOWN before settling to CONFLICTING. We retry for up to 5 minutes
+          # to avoid false negatives on freshly-landed commits.
+          MAX_ATTEMPTS=10
+          SLEEP_SECONDS=30
+
+          for attempt in $(seq 1 $MAX_ATTEMPTS); do
+            echo "Attempt $attempt/$MAX_ATTEMPTS — checking Dependabot PR mergeability..."
+
+            pr_data=$(gh pr list \
+              --repo "$GITHUB_REPOSITORY" \
+              --author "app/dependabot" \
+              --state open \
+              --json number,title,mergeable)
+
+            unknown=$(echo "$pr_data" | jq '[.[] | select(.mergeable == "UNKNOWN")] | length')
+            conflicting=$(echo "$pr_data" | jq -r '.[] | select(.mergeable == "CONFLICTING") | .number')
+
+            if [ "$unknown" -gt 0 ] && [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+              echo "$unknown PR(s) still have UNKNOWN mergeability — waiting ${SLEEP_SECONDS}s..."
+              sleep $SLEEP_SECONDS
+              continue
+            fi
+
+            if [ -z "$conflicting" ]; then
+              echo "No conflicting Dependabot PRs found."
+              exit 0
+            fi
+
+            for pr in $conflicting; do
+              echo "Requesting rebase of conflicting Dependabot PR #$pr"
+              gh pr comment "$pr" \
+                --repo "$GITHUB_REPOSITORY" \
+                --body "@dependabot rebase"
+            done
+            exit 0
+          done
+        env:
+          GH_TOKEN: ${{ github.token }}

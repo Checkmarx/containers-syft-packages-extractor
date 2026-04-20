@@ -7,6 +7,7 @@ import (
 
 	"github.com/Checkmarx/containers-types/types"
 	"github.com/anchore/stereoscope/pkg/image"
+	"github.com/anchore/syft/syft/artifact"
 	"github.com/anchore/syft/syft/file"
 	"github.com/anchore/syft/syft/linux"
 	"github.com/anchore/syft/syft/pkg"
@@ -1605,6 +1606,139 @@ func TestExtractImageNameAndTagFromTar_WithNormalization(t *testing.T) {
 				assert.Equal(t, test.expectedName, imageName)
 				assert.Equal(t, test.expectedTag, imageTag)
 			}
+		})
+	}
+}
+
+func TestFilterOwnedLanguagePackages(t *testing.T) {
+	rpmParent := pkg.Package{
+		Name:    "python3-requests",
+		Version: "2.25.1-1.el8",
+		Type:    pkg.RpmPkg,
+	}
+	rpmParent.SetID()
+
+	pipChild := pkg.Package{
+		Name:    "requests",
+		Version: "2.25.1",
+		Type:    pkg.PythonPkg,
+	}
+	pipChild.SetID()
+
+	standaloneNpm := pkg.Package{
+		Name:    "express",
+		Version: "4.18.0",
+		Type:    pkg.NpmPkg,
+	}
+	standaloneNpm.SetID()
+
+	apkParent := pkg.Package{
+		Name:    "py3-setuptools",
+		Version: "58.1.0-r0",
+		Type:    pkg.ApkPkg,
+	}
+	apkParent.SetID()
+
+	debParent := pkg.Package{
+		Name:    "python3-urllib3",
+		Version: "1.26.5-1",
+		Type:    pkg.DebPkg,
+	}
+	debParent.SetID()
+
+	tests := []struct {
+		name          string
+		artifacts     []pkg.Package
+		allPackages   []pkg.Package
+		relationships []artifact.Relationship
+		expectedCount int
+	}{
+		{
+			name:          "No relationships — no filtering",
+			artifacts:     []pkg.Package{rpmParent, pipChild, standaloneNpm},
+			allPackages:   []pkg.Package{rpmParent, pipChild, standaloneNpm},
+			relationships: nil,
+			expectedCount: 3,
+		},
+		{
+			name:        "RPM owns pip child — child filtered",
+			artifacts:   []pkg.Package{rpmParent, pipChild, standaloneNpm},
+			allPackages: []pkg.Package{rpmParent, pipChild, standaloneNpm},
+			relationships: []artifact.Relationship{
+				{
+					From: rpmParent,
+					To:   pipChild,
+					Type: artifact.OwnershipByFileOverlapRelationship,
+				},
+			},
+			expectedCount: 2,
+		},
+		{
+			name:        "APK owns pip child — child filtered",
+			artifacts:   []pkg.Package{apkParent, pipChild},
+			allPackages: []pkg.Package{apkParent, pipChild},
+			relationships: []artifact.Relationship{
+				{
+					From: apkParent,
+					To:   pipChild,
+					Type: artifact.OwnershipByFileOverlapRelationship,
+				},
+			},
+			expectedCount: 1,
+		},
+		{
+			name:        "DEB owns pip child — child filtered",
+			artifacts:   []pkg.Package{debParent, pipChild},
+			allPackages: []pkg.Package{debParent, pipChild},
+			relationships: []artifact.Relationship{
+				{
+					From: debParent,
+					To:   pipChild,
+					Type: artifact.OwnershipByFileOverlapRelationship,
+				},
+			},
+			expectedCount: 1,
+		},
+		{
+			name:        "Non-OS parent (npm owns pip) — no filtering",
+			artifacts:   []pkg.Package{standaloneNpm, pipChild},
+			allPackages: []pkg.Package{standaloneNpm, pipChild},
+			relationships: []artifact.Relationship{
+				{
+					From: standaloneNpm,
+					To:   pipChild,
+					Type: artifact.OwnershipByFileOverlapRelationship,
+				},
+			},
+			expectedCount: 2,
+		},
+		{
+			name:        "Contains relationship type — ignored",
+			artifacts:   []pkg.Package{rpmParent, pipChild},
+			allPackages: []pkg.Package{rpmParent, pipChild},
+			relationships: []artifact.Relationship{
+				{
+					From: rpmParent,
+					To:   pipChild,
+					Type: artifact.ContainsRelationship,
+				},
+			},
+			expectedCount: 2,
+		},
+		{
+			name:          "Empty relationships slice — no filtering",
+			artifacts:     []pkg.Package{rpmParent, pipChild},
+			allPackages:   []pkg.Package{rpmParent, pipChild},
+			relationships: []artifact.Relationship{},
+			expectedCount: 2,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			collection := pkg.NewCollection(test.allPackages...)
+			result := filterOwnedLanguagePackages(test.artifacts, collection, test.relationships)
+			assert.Equal(t, test.expectedCount, len(result))
 		})
 	}
 }
