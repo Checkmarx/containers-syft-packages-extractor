@@ -6,7 +6,7 @@ require (
 	github.com/Checkmarx/containers-types v1.0.9
 	github.com/anchore/stereoscope v0.1.22
 	github.com/anchore/syft v1.42.4
-	github.com/rs/zerolog v1.35.0
+	github.com/rs/zerolog v1.35.1
 	github.com/stretchr/testify v1.11.1
 	modernc.org/sqlite v1.49.1
 )
