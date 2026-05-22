@@ -6,9 +6,12 @@ on:
   push:
     branches: main # check how it can be always the default, either master or main or whatever
 
+permissions:
+  contents: read
+
 jobs:
   validate_jira_key:
-    runs-on: ubuntu-latest
+    runs-on: cx-public-ubuntu-x64
     steps:
       - name: Validate Jira Key
         if: ${{ github.event_name != 'push' }}

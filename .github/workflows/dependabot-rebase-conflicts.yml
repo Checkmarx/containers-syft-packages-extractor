@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   rebase-conflicts:
-    runs-on: ubuntu-latest
+    runs-on: cx-public-ubuntu-x64
     steps:
       - name: Rebase conflicting Dependabot PRs
         run: |
