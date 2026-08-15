@@ -275,6 +275,11 @@ func TestErrorMapping(t *testing.T) {
 			expectedError: "The image is incompatible with the scanning tool. A Linux/AMD64 version is required.",
 		},
 		{
+			name:          "Mismatched platform error",
+			inputError:    `mismatched platform (expected linux/amd64): image platform="linux/arm64" does not match user specified platform="linux/amd64"`,
+			expectedError: "The image architecture does not match the requested platform.",
+		},
+		{
 			name:          "Unsupported MediaType error",
 			inputError:    "unsupported MediaType: application/vnd.oci.image.manifest.v1+json",
 			expectedError: "The image format is outdated and unsupported. You may need to update or rebuild the image.",

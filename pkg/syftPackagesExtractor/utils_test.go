@@ -772,44 +772,24 @@ func TestWebsphereLibertyPlatformAnalysis(t *testing.T) {
 		t.Logf("✅ Success: Found %d packages with linux/amd64 platform", len(result.ContainerPackages))
 	})
 
-	t.Run("WithEmptyPlatform_ShouldDefaultToLinuxAmd64", func(t *testing.T) {
-		// Test with empty platform - should default to linux/amd64 and provide results
+	t.Run("WithEmptyPlatform_ShouldUseImageSourcePlatform", func(t *testing.T) {
+		// Test with empty platform - the image source picks the platform and provides results
 		result, err := analyzeImage(imageModel, registryOptions, "")
 
 		if err != nil {
-			t.Logf("Expected to succeed with empty platform (defaulting to linux/amd64), got error: %v", err)
+			t.Logf("Expected to succeed with empty platform, got error: %v", err)
 			t.Skip("Skipping test - image might not be available or network issues")
 		}
 
 		if result == nil {
-			t.Fatal("Expected result with empty platform (defaulting to linux/amd64), got nil")
+			t.Fatal("Expected result with empty platform, got nil")
 		}
 
 		if len(result.ContainerPackages) == 0 {
-			t.Error("Expected packages to be found with empty platform (should default to linux/amd64)")
+			t.Error("Expected packages to be found with empty platform")
 		}
 
-		t.Logf("✅ Success: Found %d packages with empty platform (defaulted to linux/amd64)", len(result.ContainerPackages))
-	})
-
-	t.Run("WithInvalidPlatform_ShouldLogAndDefaultToLinuxAmd64", func(t *testing.T) {
-		// Test with invalid platform - should log warning and default to linux/amd64
-		result, err := analyzeImage(imageModel, registryOptions, "invalid/platform")
-
-		if err != nil {
-			t.Logf("Expected to succeed with invalid platform (defaulting to linux/amd64), got error: %v", err)
-			t.Skip("Skipping test - image might not be available or network issues")
-		}
-
-		if result == nil {
-			t.Fatal("Expected result with invalid platform (defaulting to linux/amd64), got nil")
-		}
-
-		if len(result.ContainerPackages) == 0 {
-			t.Error("Expected packages to be found with invalid platform (should default to linux/amd64)")
-		}
-
-		t.Logf("✅ Success: Found %d packages with invalid platform (defaulted to linux/amd64)", len(result.ContainerPackages))
+		t.Logf("✅ Success: Found %d packages with empty platform", len(result.ContainerPackages))
 	})
 
 	t.Run("WithLinuxArm64Platform", func(t *testing.T) {
@@ -828,56 +808,48 @@ func TestWebsphereLibertyPlatformAnalysis(t *testing.T) {
 	})
 }
 
-func TestPlatformDefaultingBehavior(t *testing.T) {
-	// Test platform defaulting behavior without network calls
+func TestResolvePlatform(t *testing.T) {
+	// resolvePlatform must never invent a platform: when the caller did not ask for one the
+	// architecture choice is left to the image source, so that single-architecture images
+	// resolve regardless of the architecture they were built for (AST-165915).
 	testCases := []struct {
-		name            string
-		inputPlatform   string
-		expectedDefault string
-		shouldLog       bool
+		name             string
+		inputPlatform    string
+		expectedPlatform string // empty means "no platform should be forced"
 	}{
 		{
-			name:            "EmptyPlatform",
-			inputPlatform:   "",
-			expectedDefault: PlatformLinuxAmd64,
-			shouldLog:       true, // Should log that it's defaulting
+			name:             "EmptyPlatformIsNotForced",
+			inputPlatform:    "",
+			expectedPlatform: "",
 		},
 		{
-			name:            "ValidPlatform",
-			inputPlatform:   PlatformLinuxAmd64,
-			expectedDefault: PlatformLinuxAmd64,
-			shouldLog:       false,
+			name:             "ExplicitAmd64IsHonored",
+			inputPlatform:    PlatformLinuxAmd64,
+			expectedPlatform: PlatformLinuxAmd64,
 		},
 		{
-			name:            "InvalidPlatform",
-			inputPlatform:   "invalid/platform",
-			expectedDefault: PlatformLinuxAmd64,
-			shouldLog:       true, // Should log warning about invalid platform
+			name:             "ExplicitArm64IsHonored",
+			inputPlatform:    PlatformLinuxArm64,
+			expectedPlatform: PlatformLinuxArm64,
 		},
 		{
-			name:            "AnotherValidPlatform",
-			inputPlatform:   PlatformLinuxArm64,
-			expectedDefault: PlatformLinuxArm64,
-			shouldLog:       false,
+			name:             "ArchitectureOnlyDefaultsOsToLinux",
+			inputPlatform:    "arm64",
+			expectedPlatform: PlatformLinuxArm64,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Test the platform validation logic
-			platform := tc.inputPlatform
+			resolved := resolvePlatform(tc.inputPlatform)
 
-			// Replicate the defaulting logic from analyzeImage
-			if platform == "" {
-				platform = PlatformLinuxAmd64
+			if tc.expectedPlatform == "" {
+				assert.Nil(t, resolved, "No platform should be forced when none was requested")
+				return
 			}
 
-			// Validate platform format
-			if _, err := image.NewPlatform(platform); err != nil {
-				platform = PlatformLinuxAmd64
-			}
-
-			assert.Equal(t, tc.expectedDefault, platform, "Platform should default correctly")
+			assert.NotNil(t, resolved, "Requested platform should be honored")
+			assert.Equal(t, tc.expectedPlatform, resolved.String(), "Requested platform should be passed through unchanged")
 		})
 	}
 }
