@@ -1097,6 +1097,17 @@ func mapErrorToCustomMessage(err error) string {
 	errorStr := err.Error()
 	errorLower := strings.ToLower(errorStr)
 
+	// A platform mismatch is checked first, before the authentication patterns below.
+	// stereoscope tries every provider in turn and aggregates all of their errors into one
+	// message, so when the daemon rejects an image on its platform the message also carries the
+	// failures from the registry fallback ("unauthorized", "pull access denied"). Those are
+	// symptoms of the mismatch, not the cause, and matching them first would report a
+	// credentials problem for what is really an architecture problem.
+	if strings.Contains(errorLower, "mismatched platform") || strings.Contains(errorLower, "no child with platform") {
+		registry := extractRegistryFromError(errorStr)
+		return fmt.Sprintf("The image architecture does not match the requested platform. %s", registry)
+	}
+
 	// Check for each error pattern (case-insensitive)
 	if strings.Contains(errorLower, "toomanyrequests") {
 		return "Exceeded request limit to Docker Hub"
@@ -1120,16 +1131,6 @@ func mapErrorToCustomMessage(err error) string {
 	if strings.Contains(errorLower, "unauthorized") {
 		registry := extractRegistryFromError(errorStr)
 		return fmt.Sprintf("Access to the image is restricted. Verify the repository permissions and credentials. %s", registry)
-	}
-
-	if strings.Contains(errorLower, "no child with platform linux/amd64") {
-		registry := extractRegistryFromError(errorStr)
-		return fmt.Sprintf("The image is incompatible with the scanning tool. A Linux/AMD64 version is required. %s", registry)
-	}
-
-	if strings.Contains(errorLower, "mismatched platform") || strings.Contains(errorLower, "no child with platform") {
-		registry := extractRegistryFromError(errorStr)
-		return fmt.Sprintf("The image architecture does not match the requested platform. %s", registry)
 	}
 
 	if strings.Contains(errorLower, "unsupported mediatype") {
