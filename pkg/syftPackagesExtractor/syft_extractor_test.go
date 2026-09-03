@@ -217,9 +217,12 @@ func TestCycloneDxSBOMFieldOmittedWhenEmpty(t *testing.T) {
 func TestUnresolvedImages(t *testing.T) {
 	extractor := &syftPackagesExtractor{}
 
-	// Test with a mix of valid and invalid images
+	// Test with a mix of valid and invalid images. The malformed reference below fails during
+	// local reference parsing (invalid characters), so it never issues a DNS/network lookup -
+	// resolving to a real but nonexistent host would otherwise appear as an anomalous outbound
+	// call to CI network monitoring (e.g. StepSecurity Harden-Runner).
 	images := []types.ImageModel{
-		{Name: "nonexistent-private-registry.example.com/private-image:latest", ImageLocations: []types.ImageLocation{{Origin: types.DockerFileOrigin, Path: "/path/to/Dockerfile"}}},
+		{Name: "invalid image reference with spaces:latest", ImageLocations: []types.ImageLocation{{Origin: types.DockerFileOrigin, Path: "/path/to/Dockerfile"}}},
 		{Name: "invalid-image-name-without-registry:tag", ImageLocations: []types.ImageLocation{{Origin: types.UserInput, Path: "None"}}},
 	}
 
