@@ -7,18 +7,33 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   tag-and-release:
+    name: Tag and release
     if: github.event.pull_request.merged == true
     runs-on: cx-public-ubuntu-x64
+    permissions:
+      contents: write # push the version tag and create the GitHub release
     steps:
       - name: Checkout the repository
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        with:
+          # Credentials must persist so the later "Create a new tag" step can push with them.
+          persist-credentials: true # zizmor: ignore[artipacked]
 
       - name: Get and Format the PR Title
         id: get_pr_title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          pr_title="${{ github.event.pull_request.title }}"
+          pr_title="$PR_TITLE"
           # Use grep with regex to extract the format (AST-000) from the title
           formatted_title=$(echo "$pr_title" | grep -oE "\(AST-[0-9]+\)")
           # If formatted_title is empty, set a default value or handle the error
@@ -45,20 +60,21 @@ jobs:
           bump-level: patch
 
       - name: Create a new tag
+        env:
+          NEW_VERSION: ${{ steps.bump.outputs.new_version }}
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
-          new_tag=${{ steps.bump.outputs.new_version }}
-          git tag $new_tag -m "${{ env.formatted_title }}"
-          git push origin $new_tag
+          new_tag="$NEW_VERSION"
+          git tag "$new_tag" -m "$formatted_title"
+          git push origin "$new_tag"
 
       - name: Create release from tag
-        uses: actions/create-release@0cb9c9b65d5d1901c1f53e5e66eaf4afd303e70e # v1.1.4
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
+        # zizmor: ignore[superfluous-actions] kept for its body/draft/prerelease handling rather than reimplementing with `gh release create`
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ steps.bump.outputs.new_version }}
-          release_name: Release ${{ steps.bump.outputs.new_version }}
+          name: Release ${{ steps.bump.outputs.new_version }}
           body: ${{ steps.get_pr_title.outputs.pr_title }}
           draft: false
           prerelease: false

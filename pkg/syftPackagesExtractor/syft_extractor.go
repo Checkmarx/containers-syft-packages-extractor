@@ -55,7 +55,7 @@ func (spe *syftPackagesExtractor) AnalyzeImagesWithPlatform(images []types.Image
 			// Create an unresolved entry for the failed image
 			unresolvedResolution := createUnresolvedResolution(imageModel, err)
 			containerResolution = append(containerResolution, unresolvedResolution)
-			log.Info().Msgf("Added unresolved entry for image: %s. Error: %s", imageModel.Name, err.Error())
+			log.Warn().Msgf("Added unresolved entry for image: %s. Error: %s", imageModel.Name, err.Error())
 			continue
 		}
 		// Mark successfully resolved images

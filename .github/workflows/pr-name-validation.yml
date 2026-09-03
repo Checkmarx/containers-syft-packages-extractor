@@ -9,16 +9,25 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate_jira_key:
+    name: Validate Jira key
     runs-on: cx-public-ubuntu-x64
     steps:
       - name: Validate Jira Key
         if: ${{ github.event_name != 'push' }}
+        env:
+          GH_API_URL: ${{ github.api_url }}
+          GH_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.number }}
         run: |
           pr_title=$(curl -s \
                      -H "Accept: application/vnd.github.v3+json" \
-                     ${{ github.api_url }}/repos/${{ github.repository }}/pulls/${{ github.event.number }} | \
+                     "$GH_API_URL/repos/$GH_REPOSITORY/pulls/$PR_NUMBER" | \
                      jq -r '.title')
 
           if [[ ! $pr_title =~ (\(|\[)?[A-Z]+-[0-9]+(,[A-Z]+-[0-9]+)*(\)|\])? ]]; then

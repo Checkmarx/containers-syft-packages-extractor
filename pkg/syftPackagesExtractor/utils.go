@@ -112,12 +112,36 @@ func analyzeImageWithPlatform(imageModel types.ImageModel, registryOptions *imag
 	return analyzeImage(imageModel, registryOptions, platform)
 }
 
+// resolvePlatform turns a caller supplied platform specifier into a stereoscope platform.
+//
+// An empty specifier means "no preference", in which case nil is returned so that stereoscope
+// and syft defer the architecture choice to the image source (the Docker/Podman/containerd
+// daemon, or the image manifest). Forcing a platform here breaks single-architecture images
+// that were built for anything other than the forced one: the daemon reports a mismatch and
+// the image cannot be resolved at all.
+//
+// A specifier that cannot be parsed is reported and treated the same way as an empty one.
+func resolvePlatform(platform string) *image.Platform {
+	if platform == "" {
+		return nil
+	}
+
+	platformObj, err := image.NewPlatform(platform)
+	if err != nil {
+		log.Warn().Msgf("Invalid platform '%s' specified, letting the image source select the platform. Error: %v", platform, err)
+		return nil
+	}
+
+	return platformObj
+}
+
 // analyzeImage analyzes a container image using syft and stereoscope libraries.
-// If the platform is empty, it defaults to linux/amd64.
 // The platform format should follow Docker convention (e.g., "linux/amd64", "linux/arm64").
 //
 // The platform parameter is particularly important when analyzing multi-architecture images,
 // as it ensures that the correct architecture-specific layers and packages are analyzed.
+// When it is empty the image source picks the platform, which is what makes
+// single-architecture images resolve regardless of the architecture they were built for.
 //
 // Supported platform formats:
 // - "linux/amd64" - Linux x86-64
@@ -125,26 +149,20 @@ func analyzeImageWithPlatform(imageModel types.ImageModel, registryOptions *imag
 // - "linux/arm" - Linux ARM 32-bit
 // - "windows/amd64" - Windows x86-64
 // - "amd64" - Architecture only (OS defaults to linux)
-// - "" - Defaults to linux/amd64
+// - "" - Let the image source select the platform
 func analyzeImage(imageModel types.ImageModel, registryOptions *image.RegistryOptions, platform string) (*ContainerResolution, error) {
 
 	log.Debug().Msgf("image is %s, found in file paths: %s", imageModel.Name, GetImageLocationsPathsString(imageModel))
 
-	// Default to linux/amd64 if no platform is specified
-	if platform == "" {
-		platform = PlatformLinuxAmd64
-		log.Debug().Msgf("No platform specified, defaulting to %s", platform)
-	}
-
-	// Validate platform format
-	if _, err := image.NewPlatform(platform); err != nil {
-		log.Warn().Msgf("Invalid platform '%s' specified, defaulting to %s. Error: %v", platform, PlatformLinuxAmd64, err)
-		platform = PlatformLinuxAmd64
-	}
+	platformObj := resolvePlatform(platform)
 
 	// Only log platform info for tagged images (not tar files or archives)
 	if isTaggedImageFormat(imageModel.Name) {
-		log.Debug().Msgf("Analyzing image %s with platform %s", imageModel.Name, platform)
+		if platformObj != nil {
+			log.Debug().Msgf("Analyzing image %s with platform %s", imageModel.Name, platformObj.String())
+		} else {
+			log.Debug().Msgf("Analyzing image %s with the platform reported by the image source", imageModel.Name)
+		}
 	} else {
 		log.Debug().Msgf("Analyzing image %s", imageModel.Name)
 	}
@@ -163,10 +181,13 @@ func analyzeImage(imageModel types.ImageModel, registryOptions *image.RegistryOp
 
 	log.Debug().Msgf("Extracted source hint: '%s', clean image name: '%s'", sourceHint, imageNameForAnalysis)
 
-	// Build stereoscope options
+	// Build stereoscope options. The platform option is only added when one was requested,
+	// otherwise stereoscope defers to the image source instead of matching against a platform.
 	stereoscopeOptions := []stereoscope.Option{
 		stereoscope.WithRegistryOptions(*registryOptions),
-		stereoscope.WithPlatform(platform),
+	}
+	if platformObj != nil {
+		stereoscopeOptions = append(stereoscopeOptions, stereoscope.WithPlatform(platformObj.String()))
 	}
 
 	img, err := stereoscope.GetImage(context.Background(), imageNameForAnalysis, stereoscopeOptions...)
@@ -178,12 +199,11 @@ func analyzeImage(imageModel types.ImageModel, registryOptions *image.RegistryOp
 	// Build syft source configuration
 	sourceConfig := syft.DefaultGetSourceConfig().WithRegistryOptions(registryOptions)
 
-	// Add platform to syft configuration
-	platformObj, err := image.NewPlatform(platform)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create platform object: %w", err)
+	// Add platform to syft configuration only when one was requested, so that syft keeps its
+	// default behaviour of taking the platform from the image itself.
+	if platformObj != nil {
+		sourceConfig = sourceConfig.WithPlatform(platformObj)
 	}
-	sourceConfig = sourceConfig.WithPlatform(platformObj)
 
 	// If we have a source hint, configure syft to use that specific source
 	if sourceHint != "" {
@@ -1077,6 +1097,17 @@ func mapErrorToCustomMessage(err error) string {
 	errorStr := err.Error()
 	errorLower := strings.ToLower(errorStr)
 
+	// A platform mismatch is checked first, before the authentication patterns below.
+	// stereoscope tries every provider in turn and aggregates all of their errors into one
+	// message, so when the daemon rejects an image on its platform the message also carries the
+	// failures from the registry fallback ("unauthorized", "pull access denied"). Those are
+	// symptoms of the mismatch, not the cause, and matching them first would report a
+	// credentials problem for what is really an architecture problem.
+	if strings.Contains(errorLower, "mismatched platform") || strings.Contains(errorLower, "no child with platform") {
+		registry := extractRegistryFromError(errorStr)
+		return fmt.Sprintf("The image architecture does not match the requested platform. %s", registry)
+	}
+
 	// Check for each error pattern (case-insensitive)
 	if strings.Contains(errorLower, "toomanyrequests") {
 		return "Exceeded request limit to Docker Hub"
@@ -1100,11 +1131,6 @@ func mapErrorToCustomMessage(err error) string {
 	if strings.Contains(errorLower, "unauthorized") {
 		registry := extractRegistryFromError(errorStr)
 		return fmt.Sprintf("Access to the image is restricted. Verify the repository permissions and credentials. %s", registry)
-	}
-
-	if strings.Contains(errorLower, "no child with platform linux/amd64") {
-		registry := extractRegistryFromError(errorStr)
-		return fmt.Sprintf("The image is incompatible with the scanning tool. A Linux/AMD64 version is required. %s", registry)
 	}
 
 	if strings.Contains(errorLower, "unsupported mediatype") {

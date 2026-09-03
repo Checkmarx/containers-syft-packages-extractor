@@ -217,9 +217,12 @@ func TestCycloneDxSBOMFieldOmittedWhenEmpty(t *testing.T) {
 func TestUnresolvedImages(t *testing.T) {
 	extractor := &syftPackagesExtractor{}
 
-	// Test with a mix of valid and invalid images
+	// Test with a mix of valid and invalid images. The malformed reference below fails during
+	// local reference parsing (invalid characters), so it never issues a DNS/network lookup -
+	// resolving to a real but nonexistent host would otherwise appear as an anomalous outbound
+	// call to CI network monitoring (e.g. StepSecurity Harden-Runner).
 	images := []types.ImageModel{
-		{Name: "nonexistent-private-registry.example.com/private-image:latest", ImageLocations: []types.ImageLocation{{Origin: types.DockerFileOrigin, Path: "/path/to/Dockerfile"}}},
+		{Name: "invalid image reference with spaces:latest", ImageLocations: []types.ImageLocation{{Origin: types.DockerFileOrigin, Path: "/path/to/Dockerfile"}}},
 		{Name: "invalid-image-name-without-registry:tag", ImageLocations: []types.ImageLocation{{Origin: types.UserInput, Path: "None"}}},
 	}
 
@@ -272,7 +275,23 @@ func TestErrorMapping(t *testing.T) {
 		{
 			name:          "No child with platform error",
 			inputError:    "no child with platform linux/amd64 found in manifest list",
-			expectedError: "The image is incompatible with the scanning tool. A Linux/AMD64 version is required.",
+			expectedError: "The image architecture does not match the requested platform.",
+		},
+		{
+			name:          "Mismatched platform error",
+			inputError:    `mismatched platform (expected linux/amd64): image platform="linux/arm64" does not match user specified platform="linux/amd64"`,
+			expectedError: "The image architecture does not match the requested platform.",
+		},
+		{
+			// stereoscope aggregates every provider's failure into one message, so a platform
+			// mismatch against the daemon arrives together with the registry fallback's auth
+			// errors. The mismatch is the cause and must win over those symptoms.
+			name: "Platform mismatch takes precedence over the registry fallback auth errors",
+			inputError: `unable to detect input for 'app:1.0', errs: mismatched platform (expected linux/amd64): ` +
+				`image platform="linux/arm64" does not match user specified platform="linux/amd64"` + "\n" +
+				`pull failed: Error response from daemon: pull access denied for app, repository does not exist` + "\n" +
+				`failed to get image descriptor from registry: GET https://index.docker.io/v2/library/app/manifests/1.0: UNAUTHORIZED: authentication required`,
+			expectedError: "The image architecture does not match the requested platform.",
 		},
 		{
 			name:          "Unsupported MediaType error",
