@@ -1,0 +1,77 @@
+name: Go Module Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release as X.Y.Z, e.g. 1.2.3 (a leading 'v' is added automatically)"
+        required: true
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Tag & Publish Go Module
+    runs-on: cx-public-ubuntu-x64
+    permissions:
+      contents: write # required to create git tags and GitHub releases
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Go
+        uses: actions/setup-go@4d34df0c2316fe8122ab82dc22947d607c0c91f9
+        with:
+          go-version-file: go.mod
+
+      # Validate version (bare X.Y.Z; the 'v' prefix is added by the tag action)
+      - name: Validate version input
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "❌ Invalid version format: $VERSION"
+            echo "Use format: X.Y.Z (e.g. 1.2.3) — do not include a leading 'v'"
+            exit 1
+          fi
+
+      # ✅ Build, vet, and test before tagging so a release never ships broken code
+      - name: Build and test
+        run: |
+          go build ./...
+          go vet ./...
+          go test ./... -count=1
+
+      # 🔑 Tag Creation
+      - name: Bump version and push tag
+        id: tag_version
+        uses: step-security/github-tag-action@9c71d71802cca8038be2220876265db07000b404 # v6.2.1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          tag_prefix: v
+          custom_tag: ${{ github.event.inputs.version }}
+
+      # 📦 Verify Go module
+      - name: Verify Go module
+        run: |
+          go list -m all
+          go mod tidy
+          go mod verify
+
+      # 📦 Create GitHub Release
+      - name: Create GitHub Release
+        uses: step-security/action-gh-release@277bfa82abcfdb73e5bbb19e213fd76532ee2be5 # v3.0.0
+        with:
+          tag_name: ${{ steps.tag_version.outputs.new_tag }}
+          name: Checkmarx AST Hooks ${{ steps.tag_version.outputs.new_tag }}
+          generate_release_notes: true
