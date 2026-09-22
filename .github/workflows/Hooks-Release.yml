@@ -18,6 +18,7 @@ permissions:
 jobs:
   release:
     name: Tag & Publish Go Module
+    environment: release
     runs-on: cx-public-ubuntu-x64
     permissions:
       contents: write # required to create git tags and GitHub releases
