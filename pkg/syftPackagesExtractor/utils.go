@@ -181,20 +181,15 @@ func analyzeImage(imageModel types.ImageModel, registryOptions *image.RegistryOp
 
 	log.Debug().Msgf("Extracted source hint: '%s', clean image name: '%s'", sourceHint, imageNameForAnalysis)
 
-	// Build stereoscope options. The platform option is only added when one was requested,
-	// otherwise stereoscope defers to the image source instead of matching against a platform.
-	stereoscopeOptions := []stereoscope.Option{
-		stereoscope.WithRegistryOptions(*registryOptions),
+	// When the caller did not request a specific source (no scheme prefix like "registry:" or
+	// "docker:") and the input is a plain tagged image reference, stereoscope's default provider
+	// order tries the Docker daemon before the registry. The daemon only pulls a tag when it is
+	// missing locally, so a stale local copy of a tag that was later re-pushed would otherwise be
+	// scanned silently. Check freshness against the registry (a single manifest HEAD, no pull)
+	// and force the registry source on a proven digest mismatch.
+	if sourceHint == "" && isTaggedImageFormat(imageNameForAnalysis) {
+		sourceHint = resolveSourceHintForFreshness(imageNameForAnalysis, registryOptions)
 	}
-	if platformObj != nil {
-		stereoscopeOptions = append(stereoscopeOptions, stereoscope.WithPlatform(platformObj.String()))
-	}
-
-	img, err := stereoscope.GetImage(context.Background(), imageNameForAnalysis, stereoscopeOptions...)
-	if err != nil {
-		return nil, err
-	}
-	defer img.Cleanup()
 
 	// Build syft source configuration
 	sourceConfig := syft.DefaultGetSourceConfig().WithRegistryOptions(registryOptions)
@@ -221,6 +216,8 @@ func analyzeImage(imageModel types.ImageModel, registryOptions *image.RegistryOp
 		log.Err(err).Msgf("Could get image SBOM. image: %s.", imageModel.Name)
 		return nil, err
 	}
+
+	logResolvedImageSource(imageModel.Name, sourceHint, s)
 
 	result := transformSBOMToContainerResolution(s, imageModel)
 

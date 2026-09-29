@@ -6,6 +6,8 @@ require (
 	github.com/Checkmarx/containers-types v1.0.9
 	github.com/anchore/stereoscope v0.1.0
 	github.com/anchore/syft v1.21.0
+	github.com/docker/docker v28.0.3+incompatible
+	github.com/google/go-containerregistry v0.20.3
 	github.com/rs/zerolog v1.34.0
 	github.com/stretchr/testify v1.11.1
 	modernc.org/sqlite v1.38.2
@@ -71,7 +73,6 @@ require (
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/cli v28.0.3+incompatible // indirect
 	github.com/docker/distribution v2.8.3+incompatible // indirect
-	github.com/docker/docker v28.0.3+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.9.3 // indirect
 	github.com/docker/go-connections v0.5.0 // indirect
 	github.com/docker/go-events v0.0.0-20250114142523-c867878c5e32 // indirect
@@ -98,7 +99,6 @@ require (
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
-	github.com/google/go-containerregistry v0.20.3 // indirect
 	github.com/google/licensecheck v0.3.1 // indirect
 	github.com/google/pprof v0.0.0-20250317173921-a4b03ec1a45e // indirect
 	github.com/google/uuid v1.6.0 // indirect
