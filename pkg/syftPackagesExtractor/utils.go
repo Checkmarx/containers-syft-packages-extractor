@@ -686,6 +686,7 @@ func extractImage(distro string, imageModel types.ImageModel, sourceMetadata sou
 		Layers:         layerIds,
 		History:        history,
 		ImageLocations: getImageLocations(imageModel.ImageLocations),
+		Labels:         extractImageLabels(sourceMetadata.Labels),
 	}
 }
 
@@ -701,14 +702,15 @@ func extractImagePackages(packages *pkg.Collection, relationships []artifact.Rel
 		sourceName, sourceVersion := getPackageRelationships(containerPackage)
 
 		containerPackages = append(containerPackages, ContainerPackage{
-			Name:          extractPackageName(containerPackage),
-			Version:       containerPackage.Version,
-			Distribution:  distro,
-			Type:          packageTypeToPackageManager(containerPackage.Type),
-			SourceName:    sourceName,
-			SourceVersion: sourceVersion,
-			Licenses:      extractPackageLicenses(containerPackage),
-			LayerIds:      extractPackageLayerIds(containerPackage.Locations),
+			Name:             extractPackageName(containerPackage),
+			Version:          containerPackage.Version,
+			Distribution:     distro,
+			Type:             packageTypeToPackageManager(containerPackage.Type),
+			SourceName:       sourceName,
+			SourceVersion:    sourceVersion,
+			Licenses:         extractPackageLicenses(containerPackage),
+			LayerIds:         extractPackageLayerIds(containerPackage.Locations),
+			PackageFilePaths: extractPackageFilePaths(containerPackage.Locations),
 		})
 	}
 
@@ -850,7 +852,7 @@ func getSyftArtifactsWithoutUnsupportedTypesDuplications(packages *pkg.Collectio
 				log.Warn().Msgf("Found same package id with different types: %v. Selecting first type.", packageTypes)
 			}
 			if len(packageTypes) > 0 {
-				syftArtifacts = append(syftArtifacts, packageTypes[0])
+				syftArtifacts = append(syftArtifacts, mergeDuplicateLocations(packageTypes))
 			}
 		}
 	}
@@ -988,8 +990,14 @@ func getDistro(release *linux.Release) string {
 
 func extractPackageLayerIds(locations file.LocationSet) []string {
 	var layerIds []string
+	seen := make(map[string]struct{})
 	for _, l := range locations.ToSlice() {
-		layerIds = append(layerIds, removeSha256(l.FileSystemID))
+		id := removeSha256(l.FileSystemID)
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		layerIds = append(layerIds, id)
 	}
 	return layerIds
 }
