@@ -197,7 +197,7 @@ func TestResolutionJSON_LabelsAndPaths(t *testing.T) {
 func TestGetSyftArtifacts_MergesDuplicateLocations(t *testing.T) {
 	npmLayer1 := pkg.Package{Name: "foo", Version: "1.0", Type: pkg.NpmPkg, Locations: file.NewLocationSet(primaryLocation("/a/package.json", "sha256:l1"))}
 	npmLayer2 := pkg.Package{Name: "foo", Version: "1.0", Type: pkg.NpmPkg, Locations: file.NewLocationSet(primaryLocation("/b/package.json", "sha256:l2"))}
-	unsupported := pkg.Package{Name: "foo", Version: "1.0", Type: pkg.BinaryPkg, Locations: file.NewLocationSet(primaryLocation("/bin/foo", "sha256:l3"))}
+	unsupported := pkg.Package{Name: "foo", Version: "1.0", Type: pkg.UnknownPkg, Locations: file.NewLocationSet(primaryLocation("/bin/foo", "sha256:l3"))}
 	python := pkg.Package{Name: "foo", Version: "1.0", Type: pkg.PythonPkg, Locations: file.NewLocationSet(primaryLocation("/p/METADATA", "sha256:l4"))}
 
 	t.Run("same ecosystem duplicates keep one package with merged layers and paths", func(t *testing.T) {
