@@ -29,8 +29,12 @@ type ContainerImage struct {
 	ImageLocations []ImageLocation
 	Layers         []string
 	History        []Layer
-	Status         string `json:"status,omitempty"`    // Status of the resolution: "Resolved" or "Failed"
-	ScanError      string `json:"ScanError,omitempty"` // Error message if status is "Failed"
+	// Labels are the OCI image config labels. nil means "not extracted" (e.g. a tar/OCI input that was
+	// skipped); an empty, non-nil map means "extracted, the image has none". Consumers rely on this
+	// difference, so it must serialize as null vs {}.
+	Labels    map[string]string
+	Status    string `json:"status,omitempty"`    // Status of the resolution: "Resolved" or "Failed"
+	ScanError string `json:"ScanError,omitempty"` // Error message if status is "Failed"
 }
 
 type ImageLocation struct {
@@ -48,6 +52,8 @@ type ContainerPackage struct {
 	SourceVersion string
 	Licenses      []string
 	LayerIds      []string
+	// PackageFilePaths are the distinct primary-evidence file paths Syft found the package at.
+	PackageFilePaths []string
 }
 
 type Layer struct {
